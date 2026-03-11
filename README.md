@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # new_ncmrwf_app
 
 A new Flutter project.
@@ -15,3 +16,6 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+=======
+# app_new_ncmrwf
+>>>>>>> 64a9913fefbeddb872d6aea4cd2ef5d6c1b8fe25
