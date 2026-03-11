@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:padding="12dp">
+
+    <!-- 📍 Location — top left -->
+    <LinearLayout
+        android:id="@+id/location_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📍"
+            android:textSize="10sp"/>
+
+        <TextView
+            android:id="@+id/tv_location"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Loading..."
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:layout_marginStart="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+    </LinearLayout>
+
+    <!-- Temperature — below location -->
+    <TextView
+        android:id="@+id/tv_temperature"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/location_row"
+        android:layout_alignParentStart="true"
+        android:layout_marginTop="2dp"
+        android:text="--°"
+        android:textColor="#FFFFFFFF"
+        android:textSize="44sp"
+        android:textStyle="bold"/>
+
+    <!-- Weather emoji — center right -->
+    <TextView
+        android:id="@+id/tv_condition_icon"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="30dp"
+        android:layout_marginEnd="4dp"
+        android:text="🌤️"
+        android:textSize="34sp"/>
+
+    <!-- Frosted pill — bottom -->
+    <LinearLayout
+        android:id="@+id/forecast_pill"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:background="@drawable/forecast_pill"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="6dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="☁ "
+            android:textSize="11sp"
+            android:textColor="#FF666666"/>
+
+        <TextView
+            android:id="@+id/tv_condition"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Partly Cloudy"
+            android:textColor="#FF333333"
+            android:textSize="11sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Hidden views -->
+    <TextView android:id="@+id/tv_feels_like" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_humidity" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_wind" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_pressure" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_day_0" android:layout_width="0dp" android:layout_height="0dp" android:text="---" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_icon_0" android:layout_width="0dp" android:layout_height="0dp" android:text="-" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_temp_0" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_day_1" android:layout_width="0dp" android:layout_height="0dp" android:text="---" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_icon_1" android:layout_width="0dp" android:layout_height="0dp" android:text="-" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_temp_1" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_day_2" android:layout_width="0dp" android:layout_height="0dp" android:text="---" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_icon_2" android:layout_width="0dp" android:layout_height="0dp" android:text="-" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_temp_2" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_day_3" android:layout_width="0dp" android:layout_height="0dp" android:text="---" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_icon_3" android:layout_width="0dp" android:layout_height="0dp" android:text="-" android:visibility="gone"/>
+    <TextView android:id="@+id/tv_fc_temp_3" android:layout_width="0dp" android:layout_height="0dp" android:text="--" android:visibility="gone"/>
+
+</RelativeLayout>

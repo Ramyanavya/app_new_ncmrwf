@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">NCMRWF Weather</string>
+    <string name="widget_description">NCMRWF Live Weather Widget</string>
+</resources>

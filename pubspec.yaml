@@ -1,0 +1,81 @@
+name: new_ncmrwf_app
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider:
+  device_preview:
+  http:
+  dio:
+  geolocator: ^12.0.0
+  geocoding:
+  flutter_typeahead:
+  shared_preferences:
+  hive_flutter:
+  hive:
+  flutter_svg:
+  cached_network_image:
+  shimmer:
+  lottie:
+  google_fonts:
+  flutter_animate:
+  intl:
+  cupertino_icons: ^1.0.8
+  home_widget: ^0.6.0
+  onesignal_flutter: ^5.4.1
+  flutter_local_notifications: ^17.2.3
+  permission_handler:
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  share_plus: ^9.0.0
+  url_launcher: ^6.2.0
+  webview_flutter: ^4.7.0
+  flutter_auto_translate: ^1.0.2
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  hive_generator:
+  build_runner:
+  flutter_launcher_icons: ^0.13.1      # ← ADDED
+  flutter_native_splash: ^2.3.9        # ← ADDED
+
+# ── App Launcher Icon ──────────────────────────────────────────
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/App_Icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/App_Icon.png"
+  remove_alpha_ios: true
+
+# ── Native Splash Screen ───────────────────────────────────────
+flutter_native_splash:
+  color: "#ffffff"
+  image: "assets/icon/App_Icon.png"
+  color_dark: "#ffffff"
+  image_dark: "assets/icon/App_Icon.png"
+  android_12:
+    image: "assets/icon/App_Icon.png"
+    icon_background_color: "#ffffff"
+  fullscreen: true
+
+# ── Flutter ────────────────────────────────────────────────────
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icon/
+    - assets/backgrounds/
+    - assets/data/india_states_compact.json
+    - assets/translations/   # ← ADDED (your app_icon.png lives here)
