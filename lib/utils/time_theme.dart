@@ -1,20 +1,16 @@
 // lib/utils/time_theme.dart
 // ─────────────────────────────────────────────────────────────────────────────
 // Time-aware colour palette
-// Dawn   05–07  → warm pink-amber sunrise
-// Day    08–17  → vivid sky blue (original look)
-// Dusk   18–20  → orange-purple sunset
-// Night  21–04  → deep navy / midnight
+// Day    05–18  → vivid sky blue
+// Night  19–04  → deep navy / midnight
 // ─────────────────────────────────────────────────────────────────────────────
 import 'package:flutter/material.dart';
 
-enum _Period { dawn, day, dusk, night }
+enum _Period { day, night }
 
 _Period _period([int? hour]) {
   final h = hour ?? DateTime.now().hour;
-  if (h >= 5  && h < 8)  return _Period.dawn;
-  if (h >= 8  && h < 18) return _Period.day;
-  if (h >= 18 && h < 21) return _Period.dusk;
+  if (h >= 5 && h < 19) return _Period.day;
   return _Period.night;
 }
 
@@ -51,30 +47,6 @@ class TimeTheme {
     divider    : Color(0x33FFFFFF),
   );
 
-  // ── DAWN ───────────────────────────────────────────────────────────────────
-  static const _dawn = TimeTheme._(
-    bgGradient : [Color(0xFF2A1A4A), Color(0xFFB05068), Color(0xFFF08850)],
-    accent     : Color(0xFFFFCC80),
-    cardBg     : Color(0x35FFFFFF),
-    statusBar  : Colors.transparent,
-    appBarBg   : Color(0xAA2A1A4A),
-    sheetGrad1 : Color(0xFF7A3050),
-    sheetGrad2 : Color(0xFF3A1830),
-    divider    : Color(0x40FFFFFF),
-  );
-
-  // ── DUSK ───────────────────────────────────────────────────────────────────
-  static const _dusk = TimeTheme._(
-    bgGradient : [Color(0xFF1A0A2E), Color(0xFF7A3040), Color(0xFFE07840)],
-    accent     : Color(0xFFFFAB40),
-    cardBg     : Color(0x35FFFFFF),
-    statusBar  : Colors.transparent,
-    appBarBg   : Color(0xAA1A0A2E),
-    sheetGrad1 : Color(0xFF6A2840),
-    sheetGrad2 : Color(0xFF2A1020),
-    divider    : Color(0x40FFFFFF),
-  );
-
   // ── NIGHT ──────────────────────────────────────────────────────────────────
   static const _night = TimeTheme._(
     bgGradient : [Color(0xFF020510), Color(0xFF050D20), Color(0xFF0A1535)],
@@ -90,10 +62,7 @@ class TimeTheme {
   /// Returns the correct palette for the current (or supplied) hour.
   static TimeTheme of([int? hour]) {
     switch (_period(hour)) {
-      case _Period.dawn:  return _dawn;
-      case _Period.dusk:  return _dusk;
       case _Period.night: return _night;
-      case _Period.day:
       default:            return _day;
     }
   }
@@ -108,11 +77,9 @@ class TimeTheme {
     stops: const [0.0, 0.5, 1.0],
   );
 
-  /// Label shown in UI (optional, for debugging / accessibility)
+  /// Label shown in UI
   String get periodLabel {
     switch (_period()) {
-      case _Period.dawn:  return 'Dawn';
-      case _Period.dusk:  return 'Dusk';
       case _Period.night: return 'Night';
       default:            return 'Day';
     }

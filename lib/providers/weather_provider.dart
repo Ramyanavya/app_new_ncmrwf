@@ -1,14 +1,10 @@
 // lib/providers/weather_provider.dart
 //
 // ✅ FIX: initAndRefresh() no longer calls initFromCache() internally.
-//    initFromCache() is now called in main() BEFORE runApp(), so calling
-//    it again here would reset _status and cause unnecessary re-renders.
-//
-// ✅ FIX: initAndRefresh() is now called WITHOUT await after runApp() in main().
-//    So it must never block — both branches (cache hit & no cache) are
-//    fire-and-forget. fetchWeatherForCurrentLocation() is called without await.
-//
-// ✅ Everything else preserved exactly as original.
+// ✅ FIX: Removed locationKey gate — alert fires on every fetch.
+// ✅ FIX: Now calls WeatherAlertService.checkAndSendLive() with
+//    liveTemperatureC / liveWindSpeedKmh / liveRainMm so the temperature
+//    shown in the notification matches the app display exactly.
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -94,7 +90,6 @@ class WeatherProvider extends ChangeNotifier {
   bool                _usingStaleData     = false;
   double              _latitude           = 28.6139;
   double              _longitude          = 77.2090;
-  String              _lastAlertKey       = '';
   LocationFailReason  _locationFailReason = LocationFailReason.none;
   bool                _silentRefreshing   = false;
 
@@ -221,7 +216,6 @@ class WeatherProvider extends ChangeNotifier {
   }
 
   // ── Cache-first init ───────────────────────────────────────────────────────
-  // Called in main() BEFORE runApp() — must stay fast (disk read only, no network)
   Future<void> initFromCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -231,21 +225,30 @@ class WeatherProvider extends ChangeNotifier {
       final temp  = prefs.getDouble(_kCachedTemp);
       final cond  = prefs.getString(_kCachedCond) ?? 'Clear';
 
-      if (lat != null && lon != null) {
+      if (lat != null && lon != null && temp != null) {
         _latitude  = lat;
         _longitude = lon;
         _placeName = place;
-
-        if (temp != null) {
-          _currentWeather = CurrentWeather.stub(
-            temperatureC: temp,
-            condition   : cond,
-            placeName   : place,
-          );
-          _status = WeatherStatus.loaded;
-          notifyListeners();
-          debugPrint('[WeatherProvider] Cache-first: $place ${temp}°C ($cond)');
-        }
+        _currentWeather = CurrentWeather.stub(
+          temperatureC: temp,
+          condition   : cond,
+          placeName   : place,
+        );
+        _status = WeatherStatus.loaded;
+        notifyListeners();
+        debugPrint('[WeatherProvider] Cache-first: $place ${temp}°C ($cond)');
+      } else {
+        _latitude  = 28.6139;
+        _longitude = 77.2090;
+        _placeName = 'New Delhi, Delhi';
+        _currentWeather = CurrentWeather.stub(
+          temperatureC: 32,
+          condition   : 'Clear',
+          placeName   : 'New Delhi, Delhi',
+        );
+        _status = WeatherStatus.loaded;
+        notifyListeners();
+        debugPrint('[WeatherProvider] No cache — showing Delhi stub instantly');
       }
     } catch (e) {
       debugPrint('[WeatherProvider] Cache read error (non-fatal): $e');
@@ -253,21 +256,29 @@ class WeatherProvider extends ChangeNotifier {
   }
 
   // ── initAndRefresh ─────────────────────────────────────────────────────────
-  // ✅ FIX: Does NOT call initFromCache() anymore — main() already called it
-  //    before runApp(). Calling it again would overwrite _status unnecessarily.
-  //
-  // ✅ FIX: Called without await after runApp() — so NEVER block here.
-  //    Both branches must be fire-and-forget (no await on network calls).
   Future<void> initAndRefresh() async {
     if (_status == WeatherStatus.loaded) {
-      // Cache was loaded — refresh silently, UI already showing cached data
-      debugPrint('[WeatherProvider] Cache hit — showing instantly, silently refreshing');
-      _silentRefresh(); // no await — fire and forget
+      debugPrint('[WeatherProvider] Cache hit — silently refreshing');
+      _silentRefresh();
     } else {
-      // No cache — fetch with loading spinner
-      // forecast_screen shows spinner when status == loading
       debugPrint('[WeatherProvider] No cache — fetching with loading spinner');
-      fetchWeatherForCurrentLocation(); // no await — fire and forget
+      fetchWeatherForCurrentLocation();
+    }
+  }
+
+  // ── Helper: send alert using live computed values ─────────────────────────
+  // Called after every successful fetch so notification temp matches app display
+  Future<void> _sendAlert() async {
+    if (_currentWeather == null) return;
+    try {
+      await WeatherAlertService.checkAndSendLive(
+        weather:  _currentWeather!,
+        liveTemp: liveTemperatureC,  // ← diurnal model value (matches app)
+        liveWind: liveWindSpeedKmh,
+        liveRain: liveRainMm,
+      );
+    } catch (e) {
+      debugPrint('[WeatherProvider] Alert (non-fatal): $e');
     }
   }
 
@@ -338,21 +349,13 @@ class WeatherProvider extends ChangeNotifier {
         debugPrint('[WeatherProvider] Widget update (non-fatal): $e');
       }
 
-      final locationKey =
-          '${_latitude.toStringAsFixed(4)},${_longitude.toStringAsFixed(4)}';
-      if (locationKey != _lastAlertKey) {
-        _lastAlertKey = locationKey;
-        try {
-          await WeatherAlertService.checkAndSend(_currentWeather!);
-        } catch (e) {
-          debugPrint('[WeatherProvider] Alert (non-fatal): $e');
-        }
-      }
+      // ✅ Uses liveTemperatureC so notification matches app display
+      await _sendAlert();
 
     } catch (e) {
       _silentRefreshing = false;
       notifyListeners();
-      debugPrint('[WeatherProvider] Silent refresh failed (cached data still shown): $e');
+      debugPrint('[WeatherProvider] Silent refresh failed: $e');
     }
   }
 
@@ -498,16 +501,8 @@ class WeatherProvider extends ChangeNotifier {
         debugPrint('[WeatherProvider] Widget update (non-fatal): $e');
       }
 
-      final locationKey =
-          '${_latitude.toStringAsFixed(4)},${_longitude.toStringAsFixed(4)}';
-      if (locationKey != _lastAlertKey) {
-        _lastAlertKey = locationKey;
-        try {
-          await WeatherAlertService.checkAndSend(_currentWeather!);
-        } catch (e) {
-          debugPrint('[WeatherProvider] Alert (non-fatal): $e');
-        }
-      }
+      // ✅ Uses liveTemperatureC so notification matches app display
+      await _sendAlert();
 
       if (_usingStaleData) _scheduleBackgroundRefresh();
 
@@ -552,6 +547,8 @@ class WeatherProvider extends ChangeNotifier {
         } catch (e) {
           debugPrint('[WeatherProvider] Widget update (non-fatal): $e');
         }
+        // ✅ Uses liveTemperatureC so notification matches app display
+        await _sendAlert();
       } catch (e) {
         debugPrint('[WeatherProvider] Background refresh failed: $e');
       }

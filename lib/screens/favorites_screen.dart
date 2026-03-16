@@ -1,5 +1,5 @@
 // lib/screens/favorites_screen.dart
-// ✅ Time-aware theming via TimeTheme.of() — dawn / day / dusk / night
+// ✅ Time-aware theming via TimeTheme.of() — day / night only
 // ✅ Weather-condition-aware accent via WeatherConditionTheme.of(condition, hour: h)
 // ✅ Theme rebuilds every minute via _minuteTimer so colors shift automatically
 
@@ -40,7 +40,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   @override
   void initState() {
     super.initState();
-    // Rebuild every minute so dawn/dusk/night transitions apply live
+    // Rebuild every minute so day/night transitions apply live
     _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -396,8 +396,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIME-OF-DAY BADGE — small indicator showing current period
-// Now uses TimeTheme for its container background
+// TIME-OF-DAY BADGE — shows Day or Night only
 // ─────────────────────────────────────────────────────────────────────────────
 class _TimeOfDayBadge extends StatelessWidget {
   final int hour;
@@ -410,11 +409,7 @@ class _TimeOfDayBadge extends StatelessWidget {
   });
 
   String get _label {
-    if (hour >= 5  && hour < 8)  return '🌅 Dawn';
-    if (hour >= 8  && hour < 12) return '☀️ Morning';
-    if (hour >= 12 && hour < 17) return '🌤 Afternoon';
-    if (hour >= 17 && hour < 19) return '🌇 Dusk';
-    if (hour >= 19 && hour < 21) return '🌆 Evening';
+    if (hour >= 5 && hour < 19) return '☀️ Day';
     return '🌙 Night';
   }
 

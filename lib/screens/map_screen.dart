@@ -24,34 +24,74 @@ final _sharedHttpClient = http.Client();
 final _coordValueCache  = <String, String>{};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONSTANTS & DATE HELPERS  (all unchanged)
+// RESPONSIVE HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns a size scaled to screen width: base value was designed for 390px wide screen.
+double _rw(BuildContext context, double base) =>
+    base * MediaQuery.of(context).size.width / 390.0;
+
+/// Returns a size scaled to screen height: base value was designed for 844px tall screen.
+double _rh(BuildContext context, double base) =>
+    base * MediaQuery.of(context).size.height / 844.0;
+
+/// Clamp a responsive value between [min] and [max].
+double _rc(double value, double min, double max) => value.clamp(min, max);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS & DATE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 const String _ncmrwfApiBase = 'https://api.ncmrwf.gov.in';
 const String _appId         = '921155810533297639420383389872';
 const String _wmsPressure   = '850';
 
-String get _wmsDateStr {
-  final d = DateTime.now().toUtc();
-  return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-}
-String get _apiDateTimeStr {
-  final d   = DateTime.now().toUtc();
-  final ymd = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-  return '$ymd-hr-00-00-00';
-}
-String get _odateToday => _wmsDateStr;
-String get _odateYesterday {
-  final d = DateTime.now().toUtc().subtract(const Duration(days: 1));
-  return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+String _fmtDate(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+String get _wmsDateStr      => _fmtDate(DateTime.now().toUtc());
+String get _apiDateTimeStr  => '${_wmsDateStr}-hr-00-00-00';
+String get _odateToday      => _wmsDateStr;
+String get _odateYesterday  => _fmtDate(DateTime.now().toUtc().subtract(const Duration(days: 1)));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APP STRINGS — all translatable keys used in this file
+// ─────────────────────────────────────────────────────────────────────────────
+extension _S on AppStrings {
+  // Map screen
+  static const String weatherPortal       = 'Weather Guidance Portal';
+  static const String loadingChart        = 'Loading chart…';
+  static const String noMeteogramData     = 'No meteogram data available';
+  static const String connectApi          = AppStrings.connectAPI;
+
+  // Chart titles
+  static const String tempChartTitle      = 'Temperature (°C)';
+  static const String humidChartTitle     = 'Relative Humidity (%)';
+  static const String rainWindChartTitle  = 'Rainfall (mm/hr) & Wind';
+  static const String windLabel           = 'Wind ↑';
+
+  // Popup labels
+  static const String temperatureLabel    = 'TEMPERATURE';
+  static const String humidityLabel       = 'HUMIDITY';
+  static const String rainfallLabel       = 'RAINFALL';
+  static const String accRainfallLabel    = 'ACC. RAINFALL';
+
+  // Sheet subtitles
+  static const String skewTSubtitle       = 'Skew-T Log-P Diagram';
+  static const String epsSubtitle         = 'Control Forecast & ENS Distribution';
+  static const String epsFallback         = 'EPS Ensemble Forecast';
+  static const String controlRun          = 'Control Run';
+  static const String ensembleMembers     = 'Ensemble Members';
+  static const String temperature         = 'Temperature';
+  static const String dewpoint            = 'Dewpoint';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FORECAST STEP  — one 6-hourly time slot
+// FORECAST STEP
 // ─────────────────────────────────────────────────────────────────────────────
 class _ForecastStep {
   final DateTime dt;
-  final String   dateStr;      // "YYYY-MM-DD"
-  final String   dateTimeStr;  // "YYYY-MM-DD-hr-HH-00-00"
+  final String   dateStr;
+  final String   dateTimeStr;
   const _ForecastStep({required this.dt, required this.dateStr, required this.dateTimeStr});
 }
 
@@ -59,9 +99,9 @@ List<_ForecastStep> _buildForecastSteps() {
   final base  = DateTime.now().toUtc();
   final start = DateTime.utc(base.year, base.month, base.day);
   final steps = <_ForecastStep>[];
-  for (int h = 0; h <= 10 * 24; h += 6) {
+  for (int h = 0; h <= 4 * 24; h += 6) {
     final dt    = start.add(Duration(hours: h));
-    final dStr  = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    final dStr  = _fmtDate(dt);
     final dtStr = '$dStr-hr-${dt.hour.toString().padLeft(2, '0')}-00-00';
     steps.add(_ForecastStep(dt: dt, dateStr: dStr, dateTimeStr: dtStr));
   }
@@ -69,7 +109,7 @@ List<_ForecastStep> _buildForecastSteps() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TOP-LEVEL PARSE  (compute)
+// ISOLATE PARSE
 // ─────────────────────────────────────────────────────────────────────────────
 List<MeteogramEntry> _parseMeteogramIsolate(String body) {
   try {
@@ -80,7 +120,7 @@ List<MeteogramEntry> _parseMeteogramIsolate(String body) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NCMRWF API SERVICE  (unchanged logic)
+// NCMRWF API SERVICE
 // ─────────────────────────────────────────────────────────────────────────────
 class _NcmrwfApiService {
   static Future<String?> fetchCoordValue({
@@ -136,7 +176,10 @@ class _NcmrwfApiService {
   }
 
   static String epsgramUrl({required double lat, required double lon}) {
-    final params = {'appid': _appId, 'coords': '$lat,$lon', 'date': _apiDateTimeStr, 'odate': _odateYesterday};
+    final now      = DateTime.now().toUtc();
+    final dateStr  = '${_fmtDate(now)}-hr-00-00-00';
+    final odateStr = _fmtDate(now.subtract(const Duration(days: 1)));
+    final params   = {'appid': _appId, 'coords': '$lat,$lon', 'date': dateStr, 'odate': odateStr};
     return Uri.parse('$_ncmrwfApiBase/eps/').replace(queryParameters: params).toString();
   }
 
@@ -167,7 +210,7 @@ class _NcmrwfApiService {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MODELS  (unchanged)
+// MODELS
 // ─────────────────────────────────────────────────────────────────────────────
 class MeteogramEntry {
   final String time;
@@ -189,7 +232,7 @@ class MeteogramEntry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WEATHER LAYER MODEL  (unchanged)
+// WEATHER LAYER MODEL
 // ─────────────────────────────────────────────────────────────────────────────
 class _WeatherLayer {
   final String id, labelKey, wmsBaseUrl, coordEndpoint, unit;
@@ -231,7 +274,7 @@ const List<_WeatherLayer> _layers = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INDIA SHAPEFILE OVERLAY  (unchanged logic)
+// INDIA SHAPEFILE OVERLAY
 // ─────────────────────────────────────────────────────────────────────────────
 typedef _ShapeData = List<List<List<double>>>;
 
@@ -313,7 +356,6 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMixin {
-  // ── unchanged state ──────────────────────────────────────────────────────
   int _selectedLayer = 0;
   final MapController _mapController = MapController();
   late AnimationController _fadeCtrl;
@@ -326,12 +368,9 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   final GlobalKey _mapKey   = GlobalKey();
   DateTime? _lastTapTime;
 
-  // ── NEW: forecast slider state ────────────────────────────────────────────
   late List<_ForecastStep> _steps;
-  int  _sliderIndex = 0;
-  bool _isPlaying   = false;
-
-  // Play timer — checked every tick
+  int    _sliderIndex = 0;
+  bool   _isPlaying   = false;
   Timer? _playTimer;
 
   @override void initState() {
@@ -360,53 +399,58 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   }
 
   void _closePopup() => setState(() => _showPopup = false);
-  void _openMeteogram(LatLng pt)       { _closePopup(); showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (_) => _MeteogramSheet(point: pt)); }
-  void _openVerticalProfile(LatLng pt) { _closePopup(); showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (_) => _VerticalProfileSheet(point: pt)); }
-  void _openEPSgram(LatLng pt)         { _closePopup(); showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (_) => _EPSgramSheet(point: pt)); }
 
-  // WMS params driven by the current slider step
-  // Add this helper anywhere at file level (near the other date helpers at the top)
-  String _formatDate(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  void _openMeteogram(LatLng pt) {
+    _closePopup();
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
+        builder: (_) => _MeteogramSheet(point: pt));
+  }
+  void _openVerticalProfile(LatLng pt) {
+    _closePopup();
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
+        builder: (_) => _VerticalProfileSheet(point: pt));
+  }
+  void _openEPSgram(LatLng pt) {
+    _closePopup();
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
+        builder: (_) => _EPSgramSheet(point: pt));
+  }
 
-
-// Replace your existing _wmsParams inside _MapScreenState:
   Map<String, String> _wmsParams({String? pressure}) {
     final step = _steps[_sliderIndex];
-
-    // For 00UTC steps the model init date (odate) is the previous day
     final odateFixed = step.dt.hour == 0
-        ? _formatDate(step.dt.subtract(const Duration(days: 1)))
+        ? _fmtDate(step.dt.subtract(const Duration(days: 1)))
         : step.dateStr;
-
     return {
-      'service': 'WMS',
-      'request': 'GetMap',
-      'appid': _appId,
-      'styles': '',
-      'date': step.dateTimeStr,
-      'odate': odateFixed,          // ← was always step.dateStr (wrong at 00UTC)
+      'service': 'WMS', 'request': 'GetMap',
+      'appid': _appId, 'styles': '',
+      'date': step.dateTimeStr, 'odate': odateFixed,
       if (pressure != null) 'pressure': pressure,
       'srs': 'EPSG:3857',
     };
-    // NOTE: dataVal / data=NaN removed entirely — it's a point-API param, not WMS
   }
 
   @override
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
+    final mq     = MediaQuery.of(context);
+    final sw     = mq.size.width;
+    final isWide = sw >= 600; // tablet/large phone
+
     return Consumer<WeatherProvider>(builder: (ctx, wp, _) {
       final layer     = _layers[_selectedLayer];
       final centerLat = wp.latitude  != 0.0 ? wp.latitude  : 20.5937;
       final centerLon = wp.longitude != 0.0 ? wp.longitude : 78.9629;
 
+      // Responsive slider panel height
+      final sliderH = isWide ? 140.0 : 128.0;
+
       return Scaffold(
         backgroundColor: Colors.black,
-        // extendBodyBehindAppBar keeps status bar area transparent
         extendBodyBehindAppBar: true,
         body: Stack(children: [
 
-          // ── FULL-SCREEN MAP ───────────────────────────────────────────────
+          // ── FULL-SCREEN MAP ─────────────────────────────────────────────
           Positioned.fill(
             key: _mapKey,
             child: FlutterMap(
@@ -421,8 +465,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                   urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                   userAgentPackageName: 'com.example.new_ncmrwf_app', maxZoom: 19,
                 ),
-
-                // Temperature
                 if (_selectedLayer == 0)
                   TileLayer(
                     key: ValueKey('layer_temperature_$_sliderIndex'),
@@ -433,8 +475,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     ),
                     userAgentPackageName: 'com.example.new_ncmrwf_app',
                   ),
-
-                // Humidity
                 if (_selectedLayer == 1)
                   TileLayer(
                     key: ValueKey('layer_humidity_$_sliderIndex'),
@@ -445,8 +485,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     ),
                     userAgentPackageName: 'com.example.new_ncmrwf_app',
                   ),
-
-                // Rainfall  (no pressure, no data)
                 if (_selectedLayer == 2)
                   TileLayer(
                     key: ValueKey('layer_rainfall_$_sliderIndex'),
@@ -457,8 +495,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     ),
                     userAgentPackageName: 'com.example.new_ncmrwf_app',
                   ),
-
-                // Accumulated Rainfall  (no pressure, no data)
                 if (_selectedLayer == 3)
                   TileLayer(
                     key: ValueKey('layer_acurain_$_sliderIndex'),
@@ -469,14 +505,13 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     ),
                     userAgentPackageName: 'com.example.new_ncmrwf_app',
                   ),
-
                 _IndiaShapeOverlay(visible: _showShapeOverlay),
-
                 if (wp.latitude != 0.0 && wp.longitude != 0.0)
                   MarkerLayer(markers: [
                     Marker(
                       point: LatLng(wp.latitude, wp.longitude),
-                      width: 140, height: 72,
+                      width:  _rc(_rw(context, 140), 100, 180),
+                      height: _rc(_rh(context, 72),   56,  90),
                       child: _LocationMarker(wp: wp, layer: _layers[_selectedLayer]),
                     ),
                   ]),
@@ -484,63 +519,98 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             ),
           ),
 
-          // ── TOP BAR  (glass floating) ─────────────────────────────────────
+          // ── TOP BAR ─────────────────────────────────────────────────────
           Positioned(top: 0, left: 0, right: 0,
             child: SafeArea(bottom: false, child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+              padding: EdgeInsets.fromLTRB(
+                _rc(_rw(context, 10), 8, 16),
+                _rc(_rh(context, 8),  6, 12),
+                _rc(_rw(context, 10), 8, 16),
+                0,
+              ),
               child: Row(children: [
                 // Title pill
                 Expanded(child: _GlassCard(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: _rc(_rw(context, 12), 8, 18),
+                    vertical:   _rc(_rh(context,  9), 6, 12),
+                  ),
                   child: Row(children: [
                     Container(
-                      width: 28, height: 28,
-                      decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF0D47A1).withOpacity(0.85)),
-                      child: const Icon(Icons.satellite_alt_rounded, color: Colors.white, size: 14),
+                      width:  _rc(_rw(context, 28), 22, 38),
+                      height: _rc(_rw(context, 28), 22, 38),
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFF0D47A1).withOpacity(0.85)),
+                      child: Icon(Icons.satellite_alt_rounded, color: Colors.white,
+                          size: _rc(_rw(context, 14), 11, 18)),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                      Text('Weather Guidance Portal',
-                          style: GoogleFonts.dmSans(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800),
-                          overflow: TextOverflow.ellipsis),
-                      if (wp.placeName.isNotEmpty)
-                        Text(wp.placeName,
-                            style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 10),
-                            overflow: TextOverflow.ellipsis),
-                    ])),
+                    SizedBox(width: _rc(_rw(context, 8), 6, 12)),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TranslatedText(
+                          _S.weatherPortal,
+                          style: GoogleFonts.dmSans(
+                            color: Colors.white,
+                            fontSize: _rc(_rw(context, 13), 10, 16),
+                            fontWeight: FontWeight.w800,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (wp.placeName.isNotEmpty)
+                          Text(wp.placeName,
+                              style: GoogleFonts.dmSans(
+                                  color: Colors.white54,
+                                  fontSize: _rc(_rw(context, 10), 8, 13)),
+                              overflow: TextOverflow.ellipsis),
+                      ],
+                    )),
                   ]),
                 )),
-                const SizedBox(width: 6),
+                SizedBox(width: _rc(_rw(context, 6), 4, 10)),
 
-                // Legend toggle
-                _GlassIconBtn(icon: _showLegend ? Icons.layers_rounded : Icons.layers_outlined,
-                    active: _showLegend, onTap: () => setState(() => _showLegend = !_showLegend)),
-                const SizedBox(width: 6),
+                _GlassIconBtn(
+                  icon: _showLegend ? Icons.layers_rounded : Icons.layers_outlined,
+                  active: _showLegend,
+                  onTap: () => setState(() => _showLegend = !_showLegend),
+                  size: _rc(_rw(context, 38), 30, 48),
+                  iconSize: _rc(_rw(context, 17), 14, 22),
+                ),
+                SizedBox(width: _rc(_rw(context, 6), 4, 10)),
 
-                // Boundary toggle
-                _GlassIconBtn(icon: _showShapeOverlay ? Icons.crop_free_rounded : Icons.border_clear_rounded,
-                    active: _showShapeOverlay, onTap: () => setState(() => _showShapeOverlay = !_showShapeOverlay)),
+                _GlassIconBtn(
+                  icon: _showShapeOverlay ? Icons.crop_free_rounded : Icons.border_clear_rounded,
+                  active: _showShapeOverlay,
+                  onTap: () => setState(() => _showShapeOverlay = !_showShapeOverlay),
+                  size: _rc(_rw(context, 38), 30, 48),
+                  iconSize: _rc(_rw(context, 17), 14, 22),
+                ),
 
-                // My location
                 if (wp.latitude != 0.0) ...[
-                  const SizedBox(width: 6),
-                  _GlassIconBtn(icon: Icons.my_location_rounded,
-                      onTap: () => _mapController.move(LatLng(wp.latitude, wp.longitude), 6)),
+                  SizedBox(width: _rc(_rw(context, 6), 4, 10)),
+                  _GlassIconBtn(
+                    icon: Icons.my_location_rounded,
+                    onTap: () => _mapController.move(LatLng(wp.latitude, wp.longitude), 6),
+                    size: _rc(_rw(context, 38), 30, 48),
+                    iconSize: _rc(_rw(context, 17), 14, 22),
+                  ),
                 ],
               ]),
             )),
           ),
 
-          // ── LAYER CHIPS  (below top bar) ──────────────────────────────────
+          // ── LAYER CHIPS ─────────────────────────────────────────────────
           Positioned(
-            top: MediaQuery.of(context).padding.top + 64,
+            top: mq.padding.top + _rc(_rh(context, 64), 54, 80),
             left: 0, right: 0,
             child: SizedBox(
-              height: 40,
+              height: _rc(_rh(context, 40), 34, 52),
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: EdgeInsets.symmetric(horizontal: _rc(_rw(context, 10), 8, 16)),
                 itemCount: _layers.length,
                 itemBuilder: (ctx, i) {
                   final sel = i == _selectedLayer;
@@ -550,8 +620,11 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 220),
                       curve: Curves.easeOut,
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                      margin: EdgeInsets.only(right: _rc(_rw(context, 8), 6, 12)),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: _rc(_rw(context, 14), 10, 20),
+                        vertical:   _rc(_rh(context,  7),  5, 10),
+                      ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(30),
                         gradient: sel
@@ -564,18 +637,25 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                           color: sel ? const Color(0xFF42A5F5) : Colors.white.withOpacity(0.22),
                           width: sel ? 1.5 : 1.0,
                         ),
-                        boxShadow: sel ? [BoxShadow(color: const Color(0xFF1565C0).withOpacity(0.40), blurRadius: 10, spreadRadius: 1)] : null,
+                        boxShadow: sel
+                            ? [BoxShadow(color: const Color(0xFF1565C0).withOpacity(0.40),
+                            blurRadius: 10, spreadRadius: 1)]
+                            : null,
                       ),
                       child: ClipRect(
                         child: BackdropFilter(
                           filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(l.icon, color: sel ? Colors.white : Colors.white70, size: 13),
-                            const SizedBox(width: 6),
-                            TranslatedText(l.labelKey, style: GoogleFonts.dmSans(
+                            Icon(l.icon,
                                 color: sel ? Colors.white : Colors.white70,
-                                fontSize: 12,
-                                fontWeight: sel ? FontWeight.w700 : FontWeight.w500)),
+                                size: _rc(_rw(context, 13), 10, 17)),
+                            SizedBox(width: _rc(_rw(context, 6), 4, 9)),
+                            TranslatedText(l.labelKey,
+                                style: GoogleFonts.dmSans(
+                                  color: sel ? Colors.white : Colors.white70,
+                                  fontSize: _rc(_rw(context, 12), 10, 15),
+                                  fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                                )),
                           ]),
                         ),
                       ),
@@ -586,67 +666,87 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             ),
           ),
 
-          // ── ZOOM CONTROLS  (left, above slider) ───────────────────────────
+          // ── ZOOM CONTROLS ───────────────────────────────────────────────
           Positioned(
-            left: 10,
-            bottom: _ForecastSliderPanel.panelHeight + 14,
-            child: _buildZoomControls(),
+            left: _rc(_rw(context, 10), 8, 16),
+            bottom: sliderH + _rc(_rh(context, 14), 10, 20),
+            child: _buildZoomControls(context),
           ),
 
-          // ── LEGEND  (above slider) ─────────────────────────────────────────
+          // ── LEGEND ──────────────────────────────────────────────────────
           if (_showLegend)
             Positioned(
-              left: 58, right: 10,
-              bottom: _ForecastSliderPanel.panelHeight + 12,
+              left: _rc(_rw(context, 58), 48, 72),
+              right: _rc(_rw(context, 10), 8, 16),
+              bottom: sliderH + _rc(_rh(context, 12), 8, 18),
               child: _GlassCard(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: _rc(_rw(context, 12), 8, 18),
+                  vertical:   _rc(_rh(context,  8), 6, 12),
+                ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                   Row(children: [
-                    Icon(layer.icon, color: Colors.white60, size: 11),
-                    const SizedBox(width: 5),
+                    Icon(layer.icon, color: Colors.white60,
+                        size: _rc(_rw(context, 11), 9, 15)),
+                    SizedBox(width: _rc(_rw(context, 5), 4, 8)),
                     FutureBuilder<String>(
                       future: TranslatorService.translate(layer.labelKey),
                       initialData: layer.labelKey,
-                      builder: (_, s) => Text('${s.data}  (${layer.unit})',
-                          style: GoogleFonts.dmSans(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w600)),
+                      builder: (_, s) => Text(
+                        '${s.data}  (${layer.unit})',
+                        style: GoogleFonts.dmSans(
+                          color: Colors.white60,
+                          fontSize: _rc(_rw(context, 10), 8, 13),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ]),
-                  const SizedBox(height: 5),
-                  ClipRRect(borderRadius: BorderRadius.circular(3),
-                      child: SizedBox(height: 9, child: Row(
-                          children: layer.legendColors.map((c) => Expanded(child: ColoredBox(color: c))).toList()))),
-                  const SizedBox(height: 3),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: layer.legendLabels.map((l) => Text(l,
-                          style: GoogleFonts.dmSans(color: Colors.white38, fontSize: 8))).toList()),
+                  SizedBox(height: _rc(_rh(context, 5), 4, 8)),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: SizedBox(
+                      height: _rc(_rh(context, 9), 7, 13),
+                      child: Row(
+                        children: layer.legendColors
+                            .map((c) => Expanded(child: ColoredBox(color: c)))
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: _rc(_rh(context, 3), 2, 5)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: layer.legendLabels.map((l) => Text(l,
+                        style: GoogleFonts.dmSans(
+                            color: Colors.white38,
+                            fontSize: _rc(_rw(context, 8), 7, 11)))).toList(),
+                  ),
                 ]),
               ),
             ),
 
-          // ── TAP POPUP ──────────────────────────────────────────────────────
+          // ── TAP POPUP ───────────────────────────────────────────────────
           if (_showPopup && _tappedLatLng != null && _tappedScreen != null)
-            _buildFloatingPopup(layer, wp),
+            _buildFloatingPopup(layer, wp, context),
 
-          // ── FORECAST TIMELINE SLIDER  (bottom) ────────────────────────────
+          // ── FORECAST TIMELINE SLIDER ────────────────────────────────────
           Positioned(bottom: 0, left: 0, right: 0,
             child: _ForecastSliderPanel(
               steps        : _steps,
               selectedIndex: _sliderIndex,
               isPlaying    : _isPlaying,
               layer        : layer,
+              panelHeight  : sliderH,
               onChanged    : (i) => setState(() { _sliderIndex = i; _showPopup = false; }),
-              onPlayPause: () {
+              onPlayPause  : () {
                 setState(() => _isPlaying = !_isPlaying);
                 if (_isPlaying) {
-                  _playTimer = Timer.periodic(const Duration(milliseconds: 800), (_) {
+                  _playTimer = Timer.periodic(const Duration(milliseconds: 3000), (_) {
                     if (!mounted) { _playTimer?.cancel(); return; }
                     setState(() {
                       _sliderIndex = (_sliderIndex + 1) % _steps.length;
-                      // Auto-stop when it loops back to start
-                      if (_sliderIndex == 0) {
-                        _isPlaying = false;
-                        _playTimer?.cancel();
-                      }
+                      if (_sliderIndex == 0) { _isPlaying = false; _playTimer?.cancel(); }
                     });
                   });
                 } else {
@@ -661,61 +761,72 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     });
   }
 
-  Widget _buildZoomControls() => ClipRRect(
-    borderRadius: BorderRadius.circular(12),
-    child: BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.45),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.18)),
+  Widget _buildZoomControls(BuildContext context) {
+    final btnSize  = _rc(_rw(context, 38), 30, 50);
+    final iconSize = _rc(_rw(context, 20), 16, 26);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(_rc(_rw(context, 12), 8, 16)),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.45),
+            borderRadius: BorderRadius.circular(_rc(_rw(context, 12), 8, 16)),
+            border: Border.all(color: Colors.white.withOpacity(0.18)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _ZoomBtn(icon: Icons.add_rounded,    iconSize: iconSize, btnSize: btnSize,
+                onTap: () => _mapController.move(_mapController.camera.center,
+                    (_mapController.camera.zoom + 1).clamp(2.0, 12.0))),
+            Container(height: 1, width: btnSize * 0.85, color: Colors.white12),
+            _ZoomBtn(icon: Icons.remove_rounded, iconSize: iconSize, btnSize: btnSize,
+                onTap: () => _mapController.move(_mapController.camera.center,
+                    (_mapController.camera.zoom - 1).clamp(2.0, 12.0))),
+          ]),
         ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          _ZoomBtn(icon: Icons.add_rounded,    onTap: () => _mapController.move(_mapController.camera.center, (_mapController.camera.zoom + 1).clamp(2.0, 12.0))),
-          Container(height: 1, width: 32, color: Colors.white12),
-          _ZoomBtn(icon: Icons.remove_rounded, onTap: () => _mapController.move(_mapController.camera.center, (_mapController.camera.zoom - 1).clamp(2.0, 12.0))),
-        ]),
       ),
-    ),
-  );
+    );
+  }
 
-  Widget _buildFloatingPopup(_WeatherLayer layer, WeatherProvider wp) {
-    const popupW = 215.0, popupH = 210.0, pinGap = 10.0;
+  Widget _buildFloatingPopup(_WeatherLayer layer, WeatherProvider wp, BuildContext context) {
+    final sw       = MediaQuery.of(context).size.width;
+    final popupW   = _rc(sw * 0.55, 180, 260);
+    const popupH   = 210.0;
+    const pinGap   = 10.0;
     final RenderBox? box = _mapKey.currentContext?.findRenderObject() as RenderBox?;
-    final mapW = box?.size.width  ?? 400.0;
-    final mapH = box?.size.height ?? 600.0;
+    final mapW = box?.size.width  ?? sw;
+    final mapH = box?.size.height ?? MediaQuery.of(context).size.height;
     final left = (_tappedScreen!.dx - popupW / 2).clamp(6.0, mapW - popupW - 6.0);
     final top  = (_tappedScreen!.dy - popupH - pinGap).clamp(6.0, mapH - popupH - 6.0);
     return Positioned(left: left, top: top,
       child: _TapPopup(
         layer: layer, point: _tappedLatLng!, wp: wp,
+        popupWidth: popupW,
         onClose: _closePopup,
-        onMeteogram: () => _openMeteogram(_tappedLatLng!),
+        onMeteogram:       () => _openMeteogram(_tappedLatLng!),
         onVerticalProfile: () => _openVerticalProfile(_tappedLatLng!),
-        onEPSgram: () => _openEPSgram(_tappedLatLng!),
+        onEPSgram:         () => _openEPSgram(_tappedLatLng!),
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FORECAST SLIDER PANEL
+// FORECAST SLIDER PANEL — fully responsive
 // ─────────────────────────────────────────────────────────────────────────────
 class _ForecastSliderPanel extends StatefulWidget {
-  // The fixed visual height of the panel (excluding safe-area padding)
-  static const double panelHeight = 128.0;
-
   final List<_ForecastStep> steps;
   final int                 selectedIndex;
   final bool                isPlaying;
   final _WeatherLayer       layer;
+  final double              panelHeight;
   final ValueChanged<int>   onChanged;
   final VoidCallback        onPlayPause;
 
   const _ForecastSliderPanel({
     required this.steps, required this.selectedIndex, required this.isPlaying,
     required this.layer,  required this.onChanged,    required this.onPlayPause,
+    this.panelHeight = 128.0,
   });
 
   @override State<_ForecastSliderPanel> createState() => _ForecastSliderPanelState();
@@ -738,7 +849,7 @@ class _ForecastSliderPanelState extends State<_ForecastSliderPanel> {
 
   void _scrollToSelected() {
     if (!_scrollCtrl.hasClients) return;
-    const dotW = 22.0;
+    const dotW = 24.0;
     final vp     = _scrollCtrl.position.viewportDimension;
     final target = widget.selectedIndex * dotW - vp / 2 + dotW / 2;
     _scrollCtrl.animateTo(target.clamp(0.0, _scrollCtrl.position.maxScrollExtent),
@@ -753,40 +864,48 @@ class _ForecastSliderPanelState extends State<_ForecastSliderPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final safeBottom = MediaQuery.of(context).padding.bottom;
+    final mq         = MediaQuery.of(context);
+    final safeBottom = mq.padding.bottom;
+    final sw         = mq.size.width;
 
-    // ── Light blue sky theme colours ──────────────────────────────────────
-    const Color panelBg      = Color(0xFFE3F2FD);  // light blue 50
-    const Color panelBorder  = Color(0xFF90CAF9);  // blue 200
-    const Color dotActive    = Color(0xFF1565C0);  // blue 800  (selected dot)
-    const Color dotDay       = Color(0xFF1E88E5);  // blue 600
-    const Color dotOther     = Color(0xFFBBDEFB);  // blue 100
-    const Color progressFill = Color(0xFF1565C0);
-    const Color textPrimary  = Color(0xFF0D2B5E);
-    const Color textSub      = Color(0xFF5B8CB7);
-    const Color badgeBg      = Color(0xFFBBDEFB);
-    const Color badgeBorder  = Color(0xFF64B5F6);
+    // Responsive sizes within the panel
+    final playBtnSize  = _rc(_rw(context, 42), 34, 54);
+    final dateFontSize = _rc(_rw(context, 14), 11, 18);
+    final timeFontSize = _rc(_rw(context, 11),  9, 14);
+    final badgeFontSz  = _rc(_rw(context, 11),  9, 14);
+    final hPad         = _rc(_rw(context, 14), 10, 20);
+
+    const Color panelBg     = Color(0xFFE3F2FD);
+    const Color panelBorder = Color(0xFF90CAF9);
+    const Color dotActive   = Color(0xFF1565C0);
+    const Color dotDay      = Color(0xFF1E88E5);
+    const Color dotOther    = Color(0xFFBBDEFB);
+    const Color textPrimary = Color(0xFF0D2B5E);
+    const Color textSub     = Color(0xFF5B8CB7);
+    const Color badgeBg     = Color(0xFFBBDEFB);
+    const Color badgeBorder = Color(0xFF64B5F6);
 
     return Container(
       decoration: BoxDecoration(
         color: panelBg,
         border: const Border(top: BorderSide(color: panelBorder, width: 1.5)),
-        boxShadow: [BoxShadow(color: const Color(0xFF1565C0).withOpacity(0.12), blurRadius: 16, offset: const Offset(0, -4))],
+        boxShadow: [BoxShadow(
+            color: const Color(0xFF1565C0).withOpacity(0.12), blurRadius: 16, offset: const Offset(0, -4))],
       ),
-      height: _ForecastSliderPanel.panelHeight + safeBottom,
+      height: widget.panelHeight + safeBottom,
       child: Column(children: [
 
-        // ── Header ──────────────────────────────────────────────────────
+        // ── Header ─────────────────────────────────────────────────────
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+          padding: EdgeInsets.fromLTRB(hPad, _rc(_rh(context, 10), 8, 14), hPad, 2),
           child: Row(children: [
 
-            // Play/Pause — glowing teal-blue button
+            // Play/Pause button
             GestureDetector(
               onTap: widget.onPlayPause,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                width: 42, height: 42,
+                width: playBtnSize, height: playBtnSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
@@ -801,33 +920,47 @@ class _ForecastSliderPanelState extends State<_ForecastSliderPanel> {
                     spreadRadius: widget.isPlaying ? 3 : 0,
                   )],
                 ),
-                child: Icon(widget.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: Colors.white, size: 22),
+                child: Icon(
+                  widget.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: _rc(_rw(context, 22), 16, 28),
+                ),
               ),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: _rc(_rw(context, 12), 8, 18)),
 
-            // Date & time
-            Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              Text(_dateLabel, style: GoogleFonts.dmSans(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w800)),
-              Text(_timeLabel, style: GoogleFonts.dmSans(color: textSub,    fontSize: 11, fontWeight: FontWeight.w500)),
-            ]),
-
-            const Spacer(),
+            // Date & time — translated
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                TranslatedText(
+                  _dateLabel,
+                  style: GoogleFonts.dmSans(color: textPrimary, fontSize: dateFontSize, fontWeight: FontWeight.w800),
+                ),
+                TranslatedText(
+                  _timeLabel,
+                  style: GoogleFonts.dmSans(color: textSub, fontSize: timeFontSize, fontWeight: FontWeight.w500),
+                ),
+              ]),
+            ),
 
             // Layer badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: EdgeInsets.symmetric(
+                horizontal: _rc(_rw(context, 10), 7, 14),
+                vertical:   _rc(_rh(context,  5), 3,  8),
+              ),
               decoration: BoxDecoration(
                 color: badgeBg,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: badgeBorder, width: 1.2),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(widget.layer.icon, color: dotActive, size: 12),
-                const SizedBox(width: 5),
+                Icon(widget.layer.icon, color: dotActive,
+                    size: _rc(_rw(context, 12), 10, 16)),
+                SizedBox(width: _rc(_rw(context, 5), 3, 8)),
                 TranslatedText(widget.layer.labelKey,
-                    style: GoogleFonts.dmSans(color: textPrimary, fontSize: 11, fontWeight: FontWeight.w700)),
+                    style: GoogleFonts.dmSans(
+                        color: textPrimary, fontSize: badgeFontSz, fontWeight: FontWeight.w700)),
               ]),
             ),
           ]),
@@ -835,19 +968,23 @@ class _ForecastSliderPanelState extends State<_ForecastSliderPanel> {
 
         // ── Progress bar ────────────────────────────────────────────────
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
+          padding: EdgeInsets.fromLTRB(hPad, _rc(_rh(context, 6), 4, 9), hPad, 2),
           child: LayoutBuilder(builder: (_, c) {
             final frac = widget.steps.isEmpty ? 0.0 : widget.selectedIndex / (widget.steps.length - 1);
             return ClipRRect(
               borderRadius: BorderRadius.circular(3),
               child: Stack(children: [
                 Container(height: 4, color: dotOther),
-                FractionallySizedBox(widthFactor: frac,
-                    child: Container(height: 4,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [Color(0xFF42A5F5), Color(0xFF1565C0)]),
-                          borderRadius: BorderRadius.circular(3),
-                        ))),
+                FractionallySizedBox(
+                  widthFactor: frac,
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF42A5F5), Color(0xFF1565C0)]),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
               ]),
             );
           }),
@@ -859,7 +996,7 @@ class _ForecastSliderPanelState extends State<_ForecastSliderPanel> {
             controller     : _scrollCtrl,
             scrollDirection: Axis.horizontal,
             physics        : const ClampingScrollPhysics(),
-            padding        : const EdgeInsets.symmetric(horizontal: 14),
+            padding        : EdgeInsets.symmetric(horizontal: hPad),
             itemCount      : widget.steps.length,
             itemBuilder    : (ctx, i) {
               final s     = widget.steps[i];
@@ -867,44 +1004,65 @@ class _ForecastSliderPanelState extends State<_ForecastSliderPanel> {
               final isDay = s.dt.hour == 0;
               final isMid = s.dt.hour == 12;
 
+              final dotSel   = _rc(_rw(context, 14), 11, 18);
+              final dotBig   = _rc(_rw(context,  8),  6, 11);
+              final dotSmall = _rc(_rw(context,  5),  4,  7);
+              final dotWidth = _rc(_rw(context, 24), 20, 30);
+
               return GestureDetector(
                 onTap: () => widget.onChanged(i),
                 child: SizedBox(
-                  width: 24,
+                  width: dotWidth,
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-
-                    // Day / 12h label above
-                    SizedBox(height: 16, child: isDay
-                        ? Text(_days[(s.dt.weekday - 1) % 7],
+                    SizedBox(
+                      height: _rc(_rh(context, 16), 13, 20),
+                      child: isDay
+                          ? TranslatedText(
+                        _days[(s.dt.weekday - 1) % 7],
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.dmSans(color: textPrimary, fontSize: 9, fontWeight: FontWeight.w800))
-                        : isMid
-                        ? Text('12', textAlign: TextAlign.center,
-                        style: GoogleFonts.dmSans(color: textSub, fontSize: 8))
-                        : const SizedBox.shrink()),
-
-                    // Dot
+                        style: GoogleFonts.dmSans(
+                            color: textPrimary,
+                            fontSize: _rc(_rw(context, 9), 7, 12),
+                            fontWeight: FontWeight.w800),
+                      )
+                          : isMid
+                          ? TranslatedText(
+                        '12',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.dmSans(
+                            color: textSub,
+                            fontSize: _rc(_rw(context, 8), 6, 11)),
+                      )
+                          : const SizedBox.shrink(),
+                    ),
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
-                      width : isSel ? 14 : (isDay ? 8 : 5),
-                      height: isSel ? 14 : (isDay ? 8 : 5),
+                      width : isSel ? dotSel : (isDay ? dotBig : dotSmall),
+                      height: isSel ? dotSel : (isDay ? dotBig : dotSmall),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: isSel ? dotActive : (isDay ? dotDay : dotOther),
                         border: isSel ? Border.all(color: Colors.white, width: 2) : null,
                         boxShadow: isSel
-                            ? [BoxShadow(color: dotActive.withOpacity(0.50), blurRadius: 10, spreadRadius: 2)]
+                            ? [BoxShadow(color: dotActive.withOpacity(0.50),
+                            blurRadius: 10, spreadRadius: 2)]
                             : null,
                       ),
                     ),
-
-                    // Hour label below selected
-                    const SizedBox(height: 3),
-                    SizedBox(height: 13, child: isSel
-                        ? Text('${s.dt.hour.toString().padLeft(2, '0')}h',
+                    SizedBox(height: _rc(_rh(context, 3), 2, 5)),
+                    SizedBox(
+                      height: _rc(_rh(context, 13), 10, 17),
+                      child: isSel
+                          ? TranslatedText(
+                        '${s.dt.hour.toString().padLeft(2, '0')}h',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.dmSans(color: dotActive, fontSize: 9, fontWeight: FontWeight.w800))
-                        : const SizedBox.shrink()),
+                        style: GoogleFonts.dmSans(
+                            color: dotActive,
+                            fontSize: _rc(_rw(context, 9), 7, 12),
+                            fontWeight: FontWeight.w800),
+                      )
+                          : const SizedBox.shrink(),
+                    ),
                   ]),
                 ),
               );
@@ -944,23 +1102,33 @@ class _GlassCard extends StatelessWidget {
 }
 
 class _GlassIconBtn extends StatelessWidget {
-  final IconData icon; final VoidCallback onTap; final bool active;
-  const _GlassIconBtn({required this.icon, required this.onTap, this.active = false});
+  final IconData     icon;
+  final VoidCallback onTap;
+  final bool         active;
+  final double       size;
+  final double       iconSize;
+
+  const _GlassIconBtn({
+    required this.icon, required this.onTap,
+    this.active = false, this.size = 38, this.iconSize = 17,
+  });
 
   @override Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: ClipRRect(
-      borderRadius: BorderRadius.circular(11),
+      borderRadius: BorderRadius.circular(size * 0.29),
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Container(
-          width: 38, height: 38,
+          width: size, height: size,
           decoration: BoxDecoration(
-            color: active ? const Color(0xFF0D47A1).withOpacity(0.85) : Colors.black.withOpacity(0.48),
-            borderRadius: BorderRadius.circular(11),
+            color: active
+                ? const Color(0xFF0D47A1).withOpacity(0.85)
+                : Colors.black.withOpacity(0.48),
+            borderRadius: BorderRadius.circular(size * 0.29),
             border: Border.all(color: Colors.white.withOpacity(active ? 0.28 : 0.14)),
           ),
-          child: Icon(icon, color: active ? Colors.white : Colors.white70, size: 17),
+          child: Icon(icon, color: active ? Colors.white : Colors.white70, size: iconSize),
         ),
       ),
     ),
@@ -968,7 +1136,7 @@ class _GlassIconBtn extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOCATION MARKER  (unchanged logic)
+// LOCATION MARKER
 // ─────────────────────────────────────────────────────────────────────────────
 class _LocationMarker extends StatelessWidget {
   final WeatherProvider wp;
@@ -999,20 +1167,30 @@ class _LocationMarker extends StatelessWidget {
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: EdgeInsets.symmetric(
+            horizontal: _rc(_rw(context, 10), 7, 14),
+            vertical:   _rc(_rh(context,  5), 3,  8),
+          ),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.60),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: Colors.white.withOpacity(0.3)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(_icon, color: Colors.white70, size: 11),
-            const SizedBox(width: 4),
+            Icon(_icon, color: Colors.white70, size: _rc(_rw(context, 11), 9, 15)),
+            SizedBox(width: _rc(_rw(context, 4), 3, 6)),
             Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(wp.placeName.split(',').first,
-                  style: GoogleFonts.dmSans(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700),
+                  style: GoogleFonts.dmSans(
+                    color: Colors.white,
+                    fontSize: _rc(_rw(context, 9), 7, 12),
+                    fontWeight: FontWeight.w700,
+                  ),
                   overflow: TextOverflow.ellipsis),
-              Text(_value, style: GoogleFonts.dmSans(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+              Text(_value, style: GoogleFonts.dmSans(
+                  color: Colors.white,
+                  fontSize: _rc(_rw(context, 12), 10, 16),
+                  fontWeight: FontWeight.w800)),
             ]),
           ]),
         ),
@@ -1024,7 +1202,7 @@ class _LocationMarker extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TAP POPUP  (unchanged logic)
+// TAP POPUP
 // ─────────────────────────────────────────────────────────────────────────────
 class _TapPopup extends StatefulWidget {
   final _WeatherLayer layer; final LatLng point; final WeatherProvider wp; final double popupWidth;
@@ -1067,85 +1245,107 @@ class _TapPopupState extends State<_TapPopup> {
     });
   }
 
-  String get _paramLabel {
+  String get _paramLabelKey {
     switch (widget.layer.id) {
-      case 'temperature': return 'TEMPERATURE';
-      case 'humidity':    return 'HUMIDITY';
-      case 'rainfall':    return 'RAINFALL';
-      case 'acurain':     return 'ACC. RAINFALL';
+      case 'temperature': return _S.temperatureLabel;
+      case 'humidity':    return _S.humidityLabel;
+      case 'rainfall':    return _S.rainfallLabel;
+      case 'acurain':     return _S.accRainfallLabel;
       default:            return widget.layer.id.toUpperCase();
     }
   }
 
-  @override Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: Container(
-      width: widget.popupWidth,
-      decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(10),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.22), blurRadius: 14, offset: const Offset(0, 4))],
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
-          decoration: const BoxDecoration(color: Color(0xFFF5F5F5),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(10))),
-          child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                const Icon(Icons.location_on_rounded, size: 10, color: Color(0xFF1565C0)),
-                const SizedBox(width: 3),
-                Expanded(child: Text(_locationName,
-                    style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87),
-                    overflow: TextOverflow.ellipsis, maxLines: 2)),
-              ]),
-              const SizedBox(height: 4),
-              Row(children: [
-                Text('$_paramLabel: ', style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black54)),
-                if (_isLoading)
-                  const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF1565C0)))
-                else ...[
-                  Text(_liveValue, style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w800,
-                      color: _failed ? Colors.red[400] : const Color(0xFF1565C0))),
-                  if (_failed) ...[
-                    const SizedBox(width: 5),
-                    GestureDetector(onTap: _fetchAll, child: const Icon(Icons.refresh_rounded, size: 14, color: Color(0xFF1565C0))),
+  @override Widget build(BuildContext context) {
+    final fs = _rc(_rw(context, 10), 9, 13);
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: widget.popupWidth,
+        decoration: BoxDecoration(
+          color: Colors.white, borderRadius: BorderRadius.circular(10),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.22), blurRadius: 14, offset: const Offset(0, 4))],
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            padding: EdgeInsets.fromLTRB(
+                _rc(_rw(context, 12), 9, 16), _rc(_rh(context, 9), 7, 12),
+                _rc(_rw(context,  8), 6, 12), _rc(_rh(context, 9), 7, 12)),
+            decoration: const BoxDecoration(color: Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(10))),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Icon(Icons.location_on_rounded, size: _rc(_rw(context, 10), 8, 13),
+                      color: const Color(0xFF1565C0)),
+                  SizedBox(width: _rc(_rw(context, 3), 2, 5)),
+                  Expanded(child: Text(_locationName,
+                      style: GoogleFonts.dmSans(fontSize: fs, fontWeight: FontWeight.w600, color: Colors.black87),
+                      overflow: TextOverflow.ellipsis, maxLines: 2)),
+                ]),
+                SizedBox(height: _rc(_rh(context, 4), 3, 6)),
+                Row(children: [
+                  TranslatedText('$_paramLabelKey: ',
+                      style: GoogleFonts.dmSans(fontSize: fs, fontWeight: FontWeight.w700, color: Colors.black54)),
+                  if (_isLoading)
+                    SizedBox(width: 12, height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: const Color(0xFF1565C0)))
+                  else ...[
+                    Text(_liveValue, style: GoogleFonts.dmSans(
+                        fontSize: _rc(_rw(context, 11), 9, 14), fontWeight: FontWeight.w800,
+                        color: _failed ? Colors.red[400] : const Color(0xFF1565C0))),
+                    if (_failed) ...[
+                      SizedBox(width: _rc(_rw(context, 5), 3, 8)),
+                      GestureDetector(onTap: _fetchAll,
+                          child: Icon(Icons.refresh_rounded,
+                              size: _rc(_rw(context, 14), 11, 18),
+                              color: const Color(0xFF1565C0))),
+                    ],
                   ],
-                ],
-              ]),
-            ])),
-            GestureDetector(onTap: widget.onClose,
-                child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.close, size: 15, color: Colors.black45))),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            _RadioOption(labelKey: AppStrings.meteogram,       value: 0, groupValue: _selectedOption, onChanged: (v) => setState(() => _selectedOption = v!)),
-            _RadioOption(labelKey: AppStrings.verticalProfile, value: 1, groupValue: _selectedOption, onChanged: (v) => setState(() => _selectedOption = v!)),
-            _RadioOption(labelKey: AppStrings.epsgram,         value: 2, groupValue: _selectedOption, onChanged: (v) => setState(() => _selectedOption = v!)),
-            const SizedBox(height: 10),
-            SizedBox(width: double.infinity, height: 36,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (_selectedOption == 0)      widget.onMeteogram();
-                  else if (_selectedOption == 1) widget.onVerticalProfile();
-                  else                           widget.onEPSgram();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1565C0),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
-                  padding: EdgeInsets.zero,
+                ]),
+              ])),
+              GestureDetector(onTap: widget.onClose,
+                  child: Padding(padding: const EdgeInsets.all(4),
+                      child: Icon(Icons.close, size: _rc(_rw(context, 15), 12, 20), color: Colors.black45))),
+            ]),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                _rc(_rw(context, 12), 9, 16), _rc(_rh(context, 8), 6, 12),
+                _rc(_rw(context, 12), 9, 16), _rc(_rh(context,10), 7, 14)),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              _RadioOption(labelKey: AppStrings.meteogram,       value: 0, groupValue: _selectedOption,
+                  onChanged: (v) => setState(() => _selectedOption = v!)),
+              _RadioOption(labelKey: AppStrings.verticalProfile, value: 1, groupValue: _selectedOption,
+                  onChanged: (v) => setState(() => _selectedOption = v!)),
+              _RadioOption(labelKey: AppStrings.epsgram,         value: 2, groupValue: _selectedOption,
+                  onChanged: (v) => setState(() => _selectedOption = v!)),
+              SizedBox(height: _rc(_rh(context, 10), 7, 14)),
+              SizedBox(
+                width: double.infinity,
+                height: _rc(_rh(context, 36), 30, 46),
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (_selectedOption == 0)      widget.onMeteogram();
+                    else if (_selectedOption == 1) widget.onVerticalProfile();
+                    else                           widget.onEPSgram();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: TranslatedText(AppStrings.viewDetails,
+                      style: GoogleFonts.dmSans(
+                          fontSize: _rc(_rw(context, 12), 10, 15),
+                          fontWeight: FontWeight.w700, color: Colors.white)),
                 ),
-                child: TranslatedText(AppStrings.viewDetails,
-                    style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
               ),
-            ),
-          ]),
-        ),
-      ]),
-    ),
-  );
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 class _RadioOption extends StatelessWidget {
@@ -1157,68 +1357,92 @@ class _RadioOption extends StatelessWidget {
       Radio<int>(value: value, groupValue: groupValue, onChanged: onChanged,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           visualDensity: VisualDensity.compact, activeColor: const Color(0xFF1565C0)),
-      const SizedBox(width: 4),
-      TranslatedText(labelKey, style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
+      SizedBox(width: _rc(_rw(context, 4), 3, 7)),
+      TranslatedText(labelKey, style: GoogleFonts.dmSans(
+          fontSize: _rc(_rw(context, 12), 10, 15), color: Colors.black87, fontWeight: FontWeight.w500)),
     ])),
   );
 }
 
 class _ZoomBtn extends StatelessWidget {
-  final IconData icon; final VoidCallback onTap;
-  const _ZoomBtn({required this.icon, required this.onTap});
+  final IconData     icon;
+  final VoidCallback onTap;
+  final double       iconSize;
+  final double       btnSize;
+  const _ZoomBtn({required this.icon, required this.onTap, this.iconSize = 20, this.btnSize = 38});
   @override Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
-    child: SizedBox(width: 38, height: 36, child: Icon(icon, color: Colors.white, size: 20)),
+    child: SizedBox(width: btnSize, height: btnSize * 0.95,
+        child: Icon(icon, color: Colors.white, size: iconSize)),
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BASE SHEET  (unchanged)
+// BASE SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 class _BaseSheet extends StatelessWidget {
   final String titleKey, subtitle; final List<Widget> chartWidgets; final Future<String>? locationFuture;
   const _BaseSheet({required this.titleKey, required this.subtitle, required this.chartWidgets, this.locationFuture});
 
-  @override Widget build(BuildContext context) => DraggableScrollableSheet(
-    initialChildSize: 0.82, minChildSize: 0.40, maxChildSize: 0.95, expand: false,
-    builder: (ctx, scrollCtrl) => Container(
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      child: Column(children: [
-        Container(margin: const EdgeInsets.only(top: 10), width: 36, height: 4,
-            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 8, 4), child: Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            TranslatedText(titleKey, style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87)),
-            const SizedBox(height: 2),
-            if (locationFuture != null)
-              FutureBuilder<String>(future: locationFuture, builder: (_, snap) {
-                final loc = snap.data ?? '';
-                return Row(children: [
-                  const Icon(Icons.location_on_rounded, size: 11, color: Color(0xFF1565C0)),
-                  const SizedBox(width: 3),
-                  Expanded(child: Text(loc.isNotEmpty ? loc : subtitle,
-                      style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black54), overflow: TextOverflow.ellipsis)),
-                ]);
-              })
-            else Text(subtitle, style: GoogleFonts.dmSans(fontSize: 10, color: Colors.black45)),
-          ])),
-          IconButton(icon: const Icon(Icons.close_rounded, size: 20, color: Colors.black45), onPressed: () => Navigator.pop(ctx)),
-        ])),
-        const Divider(height: 1),
-        Expanded(child: ListView.separated(
-          controller: scrollCtrl,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
-          itemCount: chartWidgets.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (_, i) => chartWidgets[i],
-        )),
-      ]),
-    ),
-  );
+  @override Widget build(BuildContext context) {
+    final sw = MediaQuery.of(context).size.width;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.82, minChildSize: 0.40, maxChildSize: 0.95, expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        child: Column(children: [
+          Container(margin: const EdgeInsets.only(top: 10), width: 36, height: 4,
+              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                _rc(_rw(context, 16), 12, 24), _rc(_rh(context, 12), 10, 16),
+                _rc(_rw(context,  8), 6,  12), _rc(_rh(context,  4),  3,  6)),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TranslatedText(titleKey, style: GoogleFonts.dmSans(
+                    fontSize: _rc(_rw(context, 18), 14, 24),
+                    fontWeight: FontWeight.w800, color: Colors.black87)),
+                SizedBox(height: _rc(_rh(context, 2), 1, 4)),
+                if (locationFuture != null)
+                  FutureBuilder<String>(future: locationFuture, builder: (_, snap) {
+                    final loc = snap.data ?? '';
+                    return Row(children: [
+                      Icon(Icons.location_on_rounded,
+                          size: _rc(_rw(context, 11), 9, 15), color: const Color(0xFF1565C0)),
+                      SizedBox(width: _rc(_rw(context, 3), 2, 5)),
+                      Expanded(child: Text(loc.isNotEmpty ? loc : subtitle,
+                          style: GoogleFonts.dmSans(
+                              fontSize: _rc(_rw(context, 11), 9, 14), color: Colors.black54),
+                          overflow: TextOverflow.ellipsis)),
+                    ]);
+                  })
+                else Text(subtitle, style: GoogleFonts.dmSans(
+                    fontSize: _rc(_rw(context, 10), 8, 13), color: Colors.black45)),
+              ])),
+              IconButton(icon: Icon(Icons.close_rounded,
+                  size: _rc(_rw(context, 20), 16, 26), color: Colors.black45),
+                  onPressed: () => Navigator.pop(ctx)),
+            ]),
+          ),
+          const Divider(height: 1),
+          Expanded(child: ListView.separated(
+            controller: scrollCtrl,
+            padding: EdgeInsets.fromLTRB(
+                _rc(_rw(context, 16), 10, 24), _rc(_rh(context, 14), 10, 20),
+                _rc(_rw(context, 16), 10, 24), _rc(_rh(context, 32), 24, 48)),
+            itemCount: chartWidgets.length,
+            separatorBuilder: (_, __) => SizedBox(height: _rc(_rh(context, 10), 8, 16)),
+            itemBuilder: (_, i) => chartWidgets[i],
+          )),
+        ]),
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// METEOGRAM SHEET  (unchanged)
+// METEOGRAM SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 class _MeteogramSheet extends StatefulWidget {
   final LatLng point;
@@ -1238,72 +1462,89 @@ class _MeteogramSheetState extends State<_MeteogramSheet> {
     return _MeteogramData(entries: results[0] as List<MeteogramEntry>, locationName: results[1] as String);
   }
 
-  @override Widget build(BuildContext context) => DraggableScrollableSheet(
-    initialChildSize: 0.92, minChildSize: 0.50, maxChildSize: 0.97, expand: false,
-    builder: (ctx, scrollCtrl) => Container(
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      child: FutureBuilder<_MeteogramData>(future: _future, builder: (ctx, snap) {
-        final locationName = snap.data?.locationName ?? '';
-        return Column(children: [
-          Container(margin: const EdgeInsets.only(top: 10), width: 36, height: 4,
-              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 8, 4), child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              TranslatedText(AppStrings.meteogram,
-                  style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87)),
-              const SizedBox(height: 2),
-              if (locationName.isNotEmpty) Row(children: [
-                const Icon(Icons.location_on_rounded, size: 11, color: Color(0xFF1565C0)),
-                const SizedBox(width: 3),
-                Expanded(child: Text(locationName,
-                    style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black54), overflow: TextOverflow.ellipsis)),
+  @override Widget build(BuildContext context) {
+    // Chart height scales with screen — taller on tablets
+    final chartH1 = _rc(_rh(context, 180), 140, 260);
+    final chartH2 = _rc(_rh(context, 200), 160, 280);
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.92, minChildSize: 0.50, maxChildSize: 0.97, expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        child: FutureBuilder<_MeteogramData>(future: _future, builder: (ctx, snap) {
+          final locationName = snap.data?.locationName ?? '';
+          return Column(children: [
+            Container(margin: const EdgeInsets.only(top: 10), width: 36, height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  _rc(_rw(context, 16), 12, 24), _rc(_rh(context, 12), 10, 16),
+                  _rc(_rw(context,  8),  6, 12), _rc(_rh(context,  4),  3,  6)),
+              child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  TranslatedText(AppStrings.meteogram, style: GoogleFonts.dmSans(
+                      fontSize: _rc(_rw(context, 18), 14, 24),
+                      fontWeight: FontWeight.w800, color: Colors.black87)),
+                  SizedBox(height: _rc(_rh(context, 2), 1, 4)),
+                  if (locationName.isNotEmpty) Row(children: [
+                    Icon(Icons.location_on_rounded,
+                        size: _rc(_rw(context, 11), 9, 15), color: const Color(0xFF1565C0)),
+                    SizedBox(width: _rc(_rw(context, 3), 2, 5)),
+                    Expanded(child: Text(locationName,
+                        style: GoogleFonts.dmSans(
+                            fontSize: _rc(_rw(context, 11), 9, 14), color: Colors.black54),
+                        overflow: TextOverflow.ellipsis)),
+                  ]),
+                ])),
+                IconButton(icon: Icon(Icons.close_rounded,
+                    size: _rc(_rw(context, 20), 16, 26), color: Colors.black45),
+                    onPressed: () => Navigator.pop(ctx)),
               ]),
-            ])),
-            IconButton(icon: const Icon(Icons.close_rounded, size: 20, color: Colors.black45), onPressed: () => Navigator.pop(ctx)),
-          ])),
-          const Divider(height: 1),
-          Expanded(child: () {
-            if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-            if (snap.hasError || !snap.hasData || snap.data!.entries.isEmpty)
-              return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.cloud_off_rounded, size: 48, color: Colors.grey[300]),
-                const SizedBox(height: 12),
-                Text('No meteogram data available', style: GoogleFonts.dmSans(color: Colors.grey[500], fontSize: 13)),
-              ]));
-            final data = snap.data!.entries;
-            return ListView(controller: scrollCtrl, padding: const EdgeInsets.fromLTRB(0, 8, 0, 32), children: [
-              // ── Chart 1: Temperature ──────────────────────────────────
-              _MiniChartCard(
-                title: 'Temperature (°C)',
-                icon: Icons.thermostat_rounded,
-                accentColor: const Color(0xFFE53935),
-                child: SizedBox(height: 180, child: CustomPaint(
-                    painter: _TemperatureChartPainter(data: data), child: Container())),
-              ),
-              const SizedBox(height: 12),
-              // ── Chart 2: Relative Humidity ────────────────────────────
-              _MiniChartCard(
-                title: 'Relative Humidity (%)',
-                icon: Icons.water_drop_rounded,
-                accentColor: const Color(0xFF7986CB),
-                child: SizedBox(height: 180, child: CustomPaint(
-                    painter: _HumidityChartPainter(data: data), child: Container())),
-              ),
-              const SizedBox(height: 12),
-              // ── Chart 3: Rainfall + Wind ──────────────────────────────
-              _MiniChartCard(
-                title: 'Rainfall (mm/hr) & Wind',
-                icon: Icons.grain_rounded,
-                accentColor: const Color(0xFF00BCD4),
-                child: SizedBox(height: 200, child: CustomPaint(
-                    painter: _RainfallWindChartPainter(data: data), child: Container())),
-              ),
-            ]);
-          }()),
-        ]);
-      }),
-    ),
-  );
+            ),
+            const Divider(height: 1),
+            Expanded(child: () {
+              if (snap.connectionState == ConnectionState.waiting)
+                return const Center(child: CircularProgressIndicator());
+              if (snap.hasError || !snap.hasData || snap.data!.entries.isEmpty)
+                return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.cloud_off_rounded, size: _rc(_rw(context, 48), 36, 64), color: Colors.grey[300]),
+                  SizedBox(height: _rc(_rh(context, 12), 9, 18)),
+                  TranslatedText(_S.noMeteogramData,
+                      style: GoogleFonts.dmSans(color: Colors.grey[500],
+                          fontSize: _rc(_rw(context, 13), 11, 17))),
+                ]));
+              final data = snap.data!.entries;
+              return ListView(controller: scrollCtrl,
+                  padding: EdgeInsets.fromLTRB(0, _rc(_rh(context, 8), 6, 12), 0, _rc(_rh(context, 32), 24, 48)),
+                  children: [
+                    _MiniChartCard(
+                      title: _S.tempChartTitle, titleIsKey: true,
+                      icon: Icons.thermostat_rounded, accentColor: const Color(0xFFE53935),
+                      child: SizedBox(height: chartH1, child: CustomPaint(
+                          painter: _TemperatureChartPainter(data: data), child: Container())),
+                    ),
+                    SizedBox(height: _rc(_rh(context, 12), 9, 18)),
+                    _MiniChartCard(
+                      title: _S.humidChartTitle, titleIsKey: true,
+                      icon: Icons.water_drop_rounded, accentColor: const Color(0xFF7986CB),
+                      child: SizedBox(height: chartH1, child: CustomPaint(
+                          painter: _HumidityChartPainter(data: data), child: Container())),
+                    ),
+                    SizedBox(height: _rc(_rh(context, 12), 9, 18)),
+                    _MiniChartCard(
+                      title: _S.rainWindChartTitle, titleIsKey: true,
+                      icon: Icons.grain_rounded, accentColor: const Color(0xFF00BCD4),
+                      child: SizedBox(height: chartH2, child: CustomPaint(
+                          painter: _RainfallWindChartPainter(data: data), child: Container())),
+                    ),
+                  ]);
+            }()),
+          ]);
+        }),
+      ),
+    );
+  }
 }
 
 class _MeteogramData {
@@ -1312,217 +1553,169 @@ class _MeteogramData {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MINI CHART CARD  — wrapper used by all 3 meteogram charts
+// MINI CHART CARD
 // ─────────────────────────────────────────────────────────────────────────────
 class _MiniChartCard extends StatelessWidget {
-  final String    title;
-  final IconData  icon;
-  final Color     accentColor;
-  final Widget    child;
-  const _MiniChartCard({required this.title, required this.icon, required this.accentColor, required this.child});
+  final String   title;
+  final bool     titleIsKey; // true → wrap with TranslatedText
+  final IconData icon;
+  final Color    accentColor;
+  final Widget   child;
+  const _MiniChartCard({
+    required this.title, required this.icon,
+    required this.accentColor, required this.child,
+    this.titleIsKey = false,
+  });
 
-  @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.symmetric(horizontal: 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.grey.shade100),
-      boxShadow: [BoxShadow(color: accentColor.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, 4))],
-    ),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Header
-      Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-        child: Row(children: [
-          Container(
-            width: 28, height: 28,
-            decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: accentColor, size: 15),
-          ),
-          const SizedBox(width: 8),
-          Text(title, style: GoogleFonts.dmSans(
-              fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1A2B45))),
-        ]),
+  @override Widget build(BuildContext context) {
+    final iconBoxSz = _rc(_rw(context, 28), 22, 38);
+    final iconSz    = _rc(_rw(context, 15), 12, 20);
+    final titleFs   = _rc(_rw(context, 13), 11, 17);
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: _rc(_rw(context, 12), 8, 18)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [BoxShadow(color: accentColor.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, 4))],
       ),
-      Container(height: 1, color: Colors.grey.shade100),
-      Padding(padding: const EdgeInsets.all(8), child: child),
-    ]),
-  );
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+              _rc(_rw(context, 14), 10, 20), _rc(_rh(context, 12), 9, 16),
+              _rc(_rw(context, 14), 10, 20), _rc(_rh(context,  6), 4,  9)),
+          child: Row(children: [
+            Container(
+              width: iconBoxSz, height: iconBoxSz,
+              decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8)),
+              child: Icon(icon, color: accentColor, size: iconSz),
+            ),
+            SizedBox(width: _rc(_rw(context, 8), 6, 12)),
+            Expanded(
+              child: titleIsKey
+                  ? TranslatedText(title, style: GoogleFonts.dmSans(
+                  fontSize: titleFs, fontWeight: FontWeight.w700, color: const Color(0xFF1A2B45)))
+                  : Text(title, style: GoogleFonts.dmSans(
+                  fontSize: titleFs, fontWeight: FontWeight.w700, color: const Color(0xFF1A2B45))),
+            ),
+          ]),
+        ),
+        Container(height: 1, color: Colors.grey.shade100),
+        Padding(padding: EdgeInsets.all(_rc(_rw(context, 8), 6, 12)), child: child),
+      ]),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHART 1: TEMPERATURE
+// CHART PAINTERS  (unchanged logic, kept compact)
 // ─────────────────────────────────────────────────────────────────────────────
 class _TemperatureChartPainter extends CustomPainter {
   final List<MeteogramEntry> data;
   _TemperatureChartPainter({required this.data});
-
   @override void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
     const lPad = 42.0, rPad = 12.0, tPad = 10.0, bPad = 30.0;
     final cL = lPad, cR = size.width - rPad, cT = tPad, cB = size.height - bPad;
-    final cW = cR - cL, cH = cB - cT;
-    final n = data.length;
+    final cW = cR - cL, cH = cB - cT, n = data.length;
     final vals = data.map((e) => e.airTemperature).toList();
     final minV = (vals.reduce(math.min) / 5).floor() * 5.0;
     final maxV = (vals.reduce(math.max) / 5).ceil()  * 5.0 + 5.0;
     final range = maxV - minV;
-
     double xOf(int i) => cL + (i / (n - 1)) * cW;
     double yOf(double v) => cB - ((v - minV) / range) * cH;
-
-    // Grid
     final gridP = Paint()..color = Colors.grey.shade100..strokeWidth = 1;
-    for (int g = 0; g <= 4; g++) {
-      final y = yOf(minV + g * (range / 4));
-      canvas.drawLine(Offset(cL, y), Offset(cR, y), gridP);
-    }
+    for (int g = 0; g <= 4; g++) canvas.drawLine(Offset(cL, yOf(minV + g * (range / 4))), Offset(cR, yOf(minV + g * (range / 4))), gridP);
     _drawDayLines(canvas, data, n, xOf, cT, cB, gridP);
-
-    // Gradient fill
     final path = ui.Path()..moveTo(xOf(0), cB);
     for (int i = 0; i < n; i++) path.lineTo(xOf(i), yOf(vals[i]));
     path..lineTo(xOf(n - 1), cB)..close();
-    canvas.drawPath(path, Paint()..shader = ui.Gradient.linear(
-      Offset(0, cT), Offset(0, cB),
-      [const Color(0xFFE53935).withOpacity(0.30), const Color(0xFFE53935).withOpacity(0.02)],
-    )..style = PaintingStyle.fill);
-
-    // Line
-    final linePath = ui.Path();
-    for (int i = 0; i < n; i++) { i == 0 ? linePath.moveTo(xOf(i), yOf(vals[i])) : linePath.lineTo(xOf(i), yOf(vals[i])); }
-    canvas.drawPath(linePath, Paint()..color = const Color(0xFFE53935)..strokeWidth = 2.0..style = PaintingStyle.stroke..strokeJoin = StrokeJoin.round);
-
-    // Axes
+    canvas.drawPath(path, Paint()..shader = ui.Gradient.linear(Offset(0, cT), Offset(0, cB),
+        [const Color(0xFFE53935).withOpacity(0.30), const Color(0xFFE53935).withOpacity(0.02)])..style = PaintingStyle.fill);
+    final lp = ui.Path();
+    for (int i = 0; i < n; i++) { i == 0 ? lp.moveTo(xOf(i), yOf(vals[i])) : lp.lineTo(xOf(i), yOf(vals[i])); }
+    canvas.drawPath(lp, Paint()..color = const Color(0xFFE53935)..strokeWidth = 2.0..style = PaintingStyle.stroke..strokeJoin = StrokeJoin.round);
     _drawYAxis(canvas, minV, maxV, 4, yOf, cL, '°', const Color(0xFFE53935));
     _drawXTimeAxis(canvas, data, n, xOf, cB, size.width);
   }
-
   @override bool shouldRepaint(covariant _TemperatureChartPainter o) => o.data != data;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CHART 2: RELATIVE HUMIDITY
-// ─────────────────────────────────────────────────────────────────────────────
 class _HumidityChartPainter extends CustomPainter {
   final List<MeteogramEntry> data;
   _HumidityChartPainter({required this.data});
-
   @override void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
     const lPad = 42.0, rPad = 12.0, tPad = 10.0, bPad = 30.0;
     final cL = lPad, cR = size.width - rPad, cT = tPad, cB = size.height - bPad;
-    final cW = cR - cL, cH = cB - cT;
-    final n = data.length;
+    final cW = cR - cL, cH = cB - cT, n = data.length;
     final vals = data.map((e) => e.relativeHumidity).toList();
-
     double xOf(int i) => cL + (i / (n - 1)) * cW;
     double yOf(double v) => cB - (v / 100.0) * cH;
-
-    // Grid
     final gridP = Paint()..color = Colors.grey.shade100..strokeWidth = 1;
-    for (int g = 0; g <= 5; g++) {
-      final y = cB - (g / 5) * cH;
-      canvas.drawLine(Offset(cL, y), Offset(cR, y), gridP);
-    }
+    for (int g = 0; g <= 5; g++) canvas.drawLine(Offset(cL, cB - (g / 5) * cH), Offset(cR, cB - (g / 5) * cH), gridP);
     _drawDayLines(canvas, data, n, xOf, cT, cB, gridP);
-
-    // Gradient fill
     final path = ui.Path()..moveTo(xOf(0), cB);
     for (int i = 0; i < n; i++) path.lineTo(xOf(i), yOf(vals[i]));
     path..lineTo(xOf(n - 1), cB)..close();
-    canvas.drawPath(path, Paint()..shader = ui.Gradient.linear(
-      Offset(0, cT), Offset(0, cB),
-      [const Color(0xFF7986CB).withOpacity(0.30), const Color(0xFF7986CB).withOpacity(0.02)],
-    )..style = PaintingStyle.fill);
-
-    // Line
-    final linePath = ui.Path();
-    for (int i = 0; i < n; i++) { i == 0 ? linePath.moveTo(xOf(i), yOf(vals[i])) : linePath.lineTo(xOf(i), yOf(vals[i])); }
-    canvas.drawPath(linePath, Paint()..color = const Color(0xFF7986CB)..strokeWidth = 2.0..style = PaintingStyle.stroke..strokeJoin = StrokeJoin.round);
-
-    // Axes
+    canvas.drawPath(path, Paint()..shader = ui.Gradient.linear(Offset(0, cT), Offset(0, cB),
+        [const Color(0xFF7986CB).withOpacity(0.30), const Color(0xFF7986CB).withOpacity(0.02)])..style = PaintingStyle.fill);
+    final lp = ui.Path();
+    for (int i = 0; i < n; i++) { i == 0 ? lp.moveTo(xOf(i), yOf(vals[i])) : lp.lineTo(xOf(i), yOf(vals[i])); }
+    canvas.drawPath(lp, Paint()..color = const Color(0xFF7986CB)..strokeWidth = 2.0..style = PaintingStyle.stroke..strokeJoin = StrokeJoin.round);
     _drawYAxis(canvas, 0, 100, 5, (v) => cB - (v / 100.0) * cH, cL, '%', const Color(0xFF7986CB));
     _drawXTimeAxis(canvas, data, n, xOf, cB, size.width);
   }
-
   @override bool shouldRepaint(covariant _HumidityChartPainter o) => o.data != data;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CHART 3: RAINFALL + WIND ARROWS
-// ─────────────────────────────────────────────────────────────────────────────
 class _RainfallWindChartPainter extends CustomPainter {
   final List<MeteogramEntry> data;
   _RainfallWindChartPainter({required this.data});
-
   @override void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
     const lPad = 42.0, rPad = 12.0, tPad = 10.0, bPad = 52.0;
     final cL = lPad, cR = size.width - rPad, cT = tPad, cB = size.height - bPad;
-    final cW = cR - cL, cH = cB - cT;
-    final n = data.length;
-    final rains = data.map((e) => e.rainfall).toList();
+    final cW = cR - cL, cH = cB - cT, n = data.length;
+    final rains  = data.map((e) => e.rainfall).toList();
     final maxRain = rains.reduce(math.max).clamp(0.5, double.infinity);
-
     double xOf(int i) => cL + (i / (n - 1)) * cW;
     double barH(double r) => (r / maxRain) * cH;
-
-    // Grid
     final gridP = Paint()..color = Colors.grey.shade100..strokeWidth = 1;
-    for (int g = 0; g <= 4; g++) {
-      final y = cT + (1 - g / 4) * cH;
-      canvas.drawLine(Offset(cL, y), Offset(cR, y), gridP);
-    }
+    for (int g = 0; g <= 4; g++) canvas.drawLine(Offset(cL, cT + (1 - g / 4) * cH), Offset(cR, cT + (1 - g / 4) * cH), gridP);
     _drawDayLines(canvas, data, n, xOf, cT, cB, gridP);
-
-    // Rain bars
     final barW = math.max(2.0, (cW / n) * 0.65);
     for (int i = 0; i < n; i++) {
       final h = barH(rains[i]);
       if (h < 0.5) continue;
-      final rect = Rect.fromLTWH(xOf(i) - barW / 2, cB - h, barW, h);
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(2)),
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(xOf(i) - barW / 2, cB - h, barW, h), const Radius.circular(2)),
           Paint()..color = const Color(0xFF00BCD4).withOpacity(0.80));
     }
-
-    // Y axis
     final tp = TextPainter(textDirection: TextDirection.ltr);
     for (int g = 0; g <= 4; g++) {
-      final v = maxRain * g / 4;
-      final y = cT + (1 - g / 4) * cH;
+      final v = maxRain * g / 4; final y = cT + (1 - g / 4) * cH;
       tp.text = TextSpan(text: v.toStringAsFixed(g == 0 ? 0 : 1),
-          style: TextStyle(color: const Color(0xFF00BCD4), fontSize: 8, fontWeight: FontWeight.w600));
+          style: const TextStyle(color: Color(0xFF00BCD4), fontSize: 8, fontWeight: FontWeight.w600));
       tp.layout(); tp.paint(canvas, Offset(cL - tp.width - 3, y - tp.height / 2));
     }
-
-    // X time axis
     _drawXTimeAxis(canvas, data, n, xOf, cB, size.width);
-
-    // Wind arrows below the bars
     final arrowY = cB + 22.0;
     final arrowP = Paint()..color = const Color(0xFF546E7A)..strokeWidth = 1.2..style = PaintingStyle.stroke..strokeCap = StrokeCap.round;
     final step = (n / 28).ceil().clamp(1, 8);
     for (int i = 0; i < n; i += step) {
-      final x   = xOf(i);
-      final dir = data[i].windFromDirection * math.pi / 180.0;
+      final x = xOf(i); final dir = data[i].windFromDirection * math.pi / 180.0;
       const len = 7.0, headLen = 3.5;
       final ex = x + math.sin(dir) * len, ey = arrowY - math.cos(dir) * len;
       canvas.drawLine(Offset(x, arrowY), Offset(ex, ey), arrowP);
       canvas.drawLine(Offset(ex, ey), Offset(ex - math.sin(dir + 2.5) * headLen, ey + math.cos(dir + 2.5) * headLen), arrowP);
       canvas.drawLine(Offset(ex, ey), Offset(ex - math.sin(dir - 2.5) * headLen, ey + math.cos(dir - 2.5) * headLen), arrowP);
     }
-
-    // "Wind" label
     tp.text = const TextSpan(text: 'Wind ↑',
         style: TextStyle(color: Color(0xFF546E7A), fontSize: 8, fontWeight: FontWeight.w600));
     tp.layout(); tp.paint(canvas, Offset(cL - tp.width - 3, arrowY - tp.height / 2));
   }
-
   @override bool shouldRepaint(covariant _RainfallWindChartPainter o) => o.data != data;
 }
 
@@ -1566,29 +1759,13 @@ void _drawXTimeAxis(Canvas canvas, List<MeteogramEntry> data, int n,
       if (label == lastDay) continue; lastDay = label;
       tp.text = TextSpan(text: label, style: const TextStyle(color: Color(0xFF90A4AE), fontSize: 8, fontWeight: FontWeight.w700));
       tp.layout();
-      final x = xOf(i).clamp(0.0, totalWidth - tp.width - 4);
-      tp.paint(canvas, Offset(x + 2, cB + 4));
+      tp.paint(canvas, Offset(xOf(i).clamp(0.0, totalWidth - tp.width - 4) + 2, cB + 4));
     }
   }
 }
 
-// Keep _CombinedMeteogramChart and painter for backward compat (unused now but avoids deletion errors)
-class _CombinedMeteogramChart extends StatelessWidget {
-  final List<MeteogramEntry> data;
-  const _CombinedMeteogramChart({required this.data});
-  @override Widget build(BuildContext context) => const SizedBox.shrink();
-}
-class _CombinedMeteogramPainter extends CustomPainter {
-  final List<MeteogramEntry> data;
-  _CombinedMeteogramPainter({required this.data});
-  @override void paint(Canvas canvas, Size size) {}
-  @override bool shouldRepaint(covariant _CombinedMeteogramPainter o) => false;
-}
-
-
-
 // ─────────────────────────────────────────────────────────────────────────────
-// LEGEND HELPERS  (unchanged)
+// LEGEND HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 class _LegendItem extends StatelessWidget {
   final Color color; final String label; final bool isDash, isDot, isArrow;
@@ -1596,8 +1773,9 @@ class _LegendItem extends StatelessWidget {
   @override Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
     SizedBox(width: 20, height: 14, child: CustomPaint(
         painter: _LegendSymbolPainter(color: color, isDash: isDash, isDot: isDot, isArrow: isArrow))),
-    const SizedBox(width: 4),
-    Text(label, style: GoogleFonts.dmSans(fontSize: 10, color: Colors.black54)),
+    SizedBox(width: _rc(_rw(context, 4), 3, 7)),
+    TranslatedText(label, style: GoogleFonts.dmSans(
+        fontSize: _rc(_rw(context, 10), 8, 13), color: Colors.black54)),
   ]);
 }
 
@@ -1605,7 +1783,7 @@ class _LegendSymbolPainter extends CustomPainter {
   final Color color; final bool isDash, isDot, isArrow;
   const _LegendSymbolPainter({required this.color, required this.isDash, required this.isDot, required this.isArrow});
   @override void paint(Canvas canvas, Size size) {
-    final p  = Paint()..color = color..strokeWidth = 2..style = PaintingStyle.stroke;
+    final p = Paint()..color = color..strokeWidth = 2..style = PaintingStyle.stroke;
     final cy = size.height / 2;
     if (isDash) { canvas.drawLine(Offset(0, cy), Offset(size.width, cy), p); }
     else if (isDot) { canvas.drawCircle(Offset(size.width / 2, cy), 4, p..style = PaintingStyle.fill); }
@@ -1619,7 +1797,7 @@ class _LegendSymbolPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VERTICAL PROFILE SHEET  (unchanged)
+// VERTICAL PROFILE SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 class _VerticalProfileSheet extends StatefulWidget {
   final LatLng point;
@@ -1628,23 +1806,30 @@ class _VerticalProfileSheet extends StatefulWidget {
 }
 class _VerticalProfileSheetState extends State<_VerticalProfileSheet> {
   late Future<String> _locationFuture;
-  @override void initState() { super.initState(); _locationFuture = _NcmrwfApiService.reverseGeocode(lat: widget.point.latitude, lon: widget.point.longitude); }
+  @override void initState() {
+    super.initState();
+    _locationFuture = _NcmrwfApiService.reverseGeocode(lat: widget.point.latitude, lon: widget.point.longitude);
+  }
   @override Widget build(BuildContext context) => _BaseSheet(
-    titleKey: AppStrings.verticalProfile, subtitle: 'Skew-T Log-P Diagram',
+    titleKey: AppStrings.verticalProfile, subtitle: _S.skewTSubtitle,
     locationFuture: _locationFuture,
     chartWidgets: [
-      _ApiImageWidget(imageUrl: _NcmrwfApiService.verticalProfileUrl(lat: widget.point.latitude, lon: widget.point.longitude),
-          fallbackTitle: 'Skew-T Log-P Diagram', fallbackIcon: Icons.ssid_chart_rounded, fallbackColor: const Color(0xFFE8F5E9), height: 380),
-      Wrap(spacing: 16, children: const [
-        _LegendDot(color: Color(0xFFB71C1C), label: 'Temperature'),
-        _LegendDot(color: Color(0xFF1B5E20), label: 'Dewpoint'),
+      _ApiImageWidget(
+        imageUrl: _NcmrwfApiService.verticalProfileUrl(lat: widget.point.latitude, lon: widget.point.longitude),
+        fallbackTitle: _S.skewTSubtitle, fallbackTitleIsKey: true,
+        fallbackIcon: Icons.ssid_chart_rounded, fallbackColor: const Color(0xFFE8F5E9),
+        height: _rc(_rh(context, 380), 280, 520),
+      ),
+      Wrap(spacing: _rc(_rw(context, 16), 12, 22), children: [
+        _LegendDot(color: const Color(0xFFB71C1C), label: _S.temperature, labelIsKey: true),
+        _LegendDot(color: const Color(0xFF1B5E20), label: _S.dewpoint,    labelIsKey: true),
       ]),
     ],
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EPS GRAM SHEET  (unchanged)
+// EPS GRAM SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 class _EPSgramSheet extends StatefulWidget {
   final LatLng point;
@@ -1653,66 +1838,122 @@ class _EPSgramSheet extends StatefulWidget {
 }
 class _EPSgramSheetState extends State<_EPSgramSheet> {
   late Future<String> _locationFuture;
-  @override void initState() { super.initState(); _locationFuture = _NcmrwfApiService.reverseGeocode(lat: widget.point.latitude, lon: widget.point.longitude); }
+  @override void initState() {
+    super.initState();
+    _locationFuture = _NcmrwfApiService.reverseGeocode(lat: widget.point.latitude, lon: widget.point.longitude);
+  }
   @override Widget build(BuildContext context) => _BaseSheet(
-    titleKey: AppStrings.epsgram, subtitle: 'Control Forecast & ENS Distribution',
+    titleKey: AppStrings.epsgram, subtitle: _S.epsSubtitle,
     locationFuture: _locationFuture,
     chartWidgets: [
-      _ApiImageWidget(imageUrl: _NcmrwfApiService.epsgramUrl(lat: widget.point.latitude, lon: widget.point.longitude),
-          fallbackTitle: 'EPS Ensemble Forecast', fallbackIcon: Icons.bar_chart_rounded, fallbackColor: const Color(0xFFFFF3E0), height: 480),
-      Wrap(spacing: 16, children: const [
-        _LegendDot(color: Color(0xFF1565C0), label: 'Control Run'),
-        _LegendDot(color: Color(0xFF78909C), label: 'Ensemble Members'),
+      _ApiImageWidget(
+        imageUrl: _NcmrwfApiService.epsgramUrl(lat: widget.point.latitude, lon: widget.point.longitude),
+        fallbackTitle: _S.epsFallback, fallbackTitleIsKey: true,
+        fallbackIcon: Icons.bar_chart_rounded, fallbackColor: const Color(0xFFFFF3E0),
+        height: _rc(_rh(context, 480), 360, 640),
+      ),
+      Wrap(spacing: _rc(_rw(context, 16), 12, 22), children: [
+        _LegendDot(color: const Color(0xFF1565C0), label: _S.controlRun,       labelIsKey: true),
+        _LegendDot(color: const Color(0xFF78909C), label: _S.ensembleMembers,  labelIsKey: true),
       ]),
     ],
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API IMAGE WIDGET  (unchanged)
+// API IMAGE WIDGET
 // ─────────────────────────────────────────────────────────────────────────────
 class _ApiImageWidget extends StatelessWidget {
-  final String imageUrl, fallbackTitle; final IconData fallbackIcon;
-  final Color fallbackColor; final double height;
-  const _ApiImageWidget({required this.imageUrl, required this.fallbackTitle,
-    required this.fallbackIcon, required this.fallbackColor, this.height = 300});
+  final String   imageUrl, fallbackTitle;
+  final bool     fallbackTitleIsKey;
+  final IconData fallbackIcon;
+  final Color    fallbackColor;
+  final double   height;
+
+  const _ApiImageWidget({
+    required this.imageUrl, required this.fallbackTitle,
+    required this.fallbackIcon, required this.fallbackColor,
+    this.height = 300, this.fallbackTitleIsKey = false,
+  });
 
   @override Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(10),
     child: Container(
       width: double.infinity, height: height,
-      decoration: BoxDecoration(color: fallbackColor, border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(
+          color: fallbackColor,
+          border: Border.all(color: Colors.grey.shade200),
+          borderRadius: BorderRadius.circular(10)),
       child: Image.network(imageUrl, fit: BoxFit.contain,
         loadingBuilder: (ctx, child, progress) {
           if (progress == null) return child;
-          final pct = progress.expectedTotalBytes != null ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes! : null;
+          final pct = progress.expectedTotalBytes != null
+              ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+              : null;
           return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             CircularProgressIndicator(value: pct, color: const Color(0xFF1565C0), strokeWidth: 2),
-            const SizedBox(height: 12),
-            Text('Loading chart…', style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey[500])),
+            SizedBox(height: _rc(_rh(context, 12), 9, 18)),
+            TranslatedText(_S.loadingChart, style: GoogleFonts.dmSans(
+                fontSize: _rc(_rw(context, 12), 10, 15), color: Colors.grey[500])),
           ]);
         },
         errorBuilder: (ctx, error, st) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(fallbackIcon, size: 48, color: Colors.grey[300]),
-          const SizedBox(height: 10),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(fallbackTitle, textAlign: TextAlign.center,
-                  style: GoogleFonts.dmSans(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w600))),
-          const SizedBox(height: 6),
-          Text(AppStrings.connectAPI, style: GoogleFonts.dmSans(fontSize: 10, color: Colors.grey[400])),
+          Icon(fallbackIcon, size: _rc(_rw(context, 48), 36, 64), color: Colors.grey[300]),
+          SizedBox(height: _rc(_rh(context, 10), 7, 14)),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: _rc(_rw(context, 16), 12, 24)),
+            child: fallbackTitleIsKey
+                ? TranslatedText(fallbackTitle, textAlign: TextAlign.center,
+                style: GoogleFonts.dmSans(
+                    fontSize: _rc(_rw(context, 13), 11, 17),
+                    color: Colors.grey[600], fontWeight: FontWeight.w600))
+                : Text(fallbackTitle, textAlign: TextAlign.center,
+                style: GoogleFonts.dmSans(
+                    fontSize: _rc(_rw(context, 13), 11, 17),
+                    color: Colors.grey[600], fontWeight: FontWeight.w600)),
+          ),
+          SizedBox(height: _rc(_rh(context, 6), 4, 9)),
+          TranslatedText(_S.connectApi, style: GoogleFonts.dmSans(
+              fontSize: _rc(_rw(context, 10), 8, 13), color: Colors.grey[400])),
         ]),
       ),
     ),
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LEGEND DOT
+// ─────────────────────────────────────────────────────────────────────────────
 class _LegendDot extends StatelessWidget {
-  final Color color; final String label;
-  const _LegendDot({required this.color, required this.label});
+  final Color  color;
+  final String label;
+  final bool   labelIsKey;
+  const _LegendDot({required this.color, required this.label, this.labelIsKey = false});
+
   @override Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-    const SizedBox(width: 4),
-    Text(label, style: GoogleFonts.dmSans(fontSize: 11, color: Colors.black54)),
+    Container(
+      width:  _rc(_rw(context, 10), 8, 14),
+      height: _rc(_rw(context, 10), 8, 14),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    ),
+    SizedBox(width: _rc(_rw(context, 4), 3, 7)),
+    labelIsKey
+        ? TranslatedText(label, style: GoogleFonts.dmSans(
+        fontSize: _rc(_rw(context, 11), 9, 14), color: Colors.black54))
+        : Text(label, style: GoogleFonts.dmSans(
+        fontSize: _rc(_rw(context, 11), 9, 14), color: Colors.black54)),
   ]);
 }
 
+// Backward compat stubs
+class _CombinedMeteogramChart extends StatelessWidget {
+  final List<MeteogramEntry> data;
+  const _CombinedMeteogramChart({required this.data});
+  @override Widget build(BuildContext context) => const SizedBox.shrink();
+}
+class _CombinedMeteogramPainter extends CustomPainter {
+  final List<MeteogramEntry> data;
+  _CombinedMeteogramPainter({required this.data});
+  @override void paint(Canvas canvas, Size size) {}
+  @override bool shouldRepaint(covariant _CombinedMeteogramPainter o) => false;
+}

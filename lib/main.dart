@@ -1,4 +1,4 @@
-
+// lib/main.dart
 
 import 'dart:async';
 import 'dart:ui';
@@ -63,8 +63,10 @@ void main() async {
 
   weatherProvider.initAndRefresh();
 
+  // ✅ FIX: Delay heavy services by 3 seconds so OneSignal has time
+  // to fully register the device before we add listeners
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    _initHeavyServices();
+    Future.delayed(const Duration(seconds: 3), _initHeavyServices);
   });
 }
 
@@ -73,10 +75,46 @@ Future<void> _initHeavyServices() async {
     OneSignal.Debug.setLogLevel(OSLogLevel.none);
     OneSignal.initialize('966404a4-cd8a-4d04-b1f5-9a78a8b5e20d');
     await LocalNotificationService.initialize();
+
     if (Platform.isAndroid) {
       await Permission.notification.request();
     }
-    OneSignal.Notifications.requestPermission(true);
+    await OneSignal.Notifications.requestPermission(true);
+
+    // ── Log subscription state ─────────────────────────────────────────────
+    final playerId    = OneSignal.User.pushSubscription.id;
+    final isOptedIn   = OneSignal.User.pushSubscription.optedIn;
+    debugPrint('[OneSignal] Player ID: $playerId');
+    debugPrint('[OneSignal] Opted in: $isOptedIn');
+
+    // ── Watch for subscription changes ─────────────────────────────────────
+    OneSignal.User.pushSubscription.addObserver((state) {
+      debugPrint('[OneSignal] Subscription updated:');
+      debugPrint('  id: ${state.current.id}');
+      debugPrint('  optedIn: ${state.current.optedIn}');
+    });
+
+    // ── Notification arrives while app is OPEN ─────────────────────────────
+    // OneSignal suppresses heads-up in foreground — show it via local plugin
+    OneSignal.Notifications.addForegroundWillDisplayListener((event) {
+      final n = event.notification;
+      debugPrint('[OneSignal] Foreground notification: ${n.title}');
+      LocalNotificationService.showWeatherAlert(
+        n.title ?? 'Weather Alert',
+        n.body  ?? '',
+      );
+      event.preventDefault(); // stop OneSignal's own display
+    });
+
+    // ── User TAPS a notification ───────────────────────────────────────────
+    OneSignal.Notifications.addClickListener((event) {
+      debugPrint('[OneSignal] Notification tapped: '
+          '${event.notification.additionalData}');
+      // Add navigation here later if needed:
+      // navigatorKey.currentState?.pushNamed('/forecast');
+    });
+
+    debugPrint('[OneSignal] ✅ Heavy services initialized');
   } catch (e) {
     debugPrint('[main] deferred init error: $e');
   }
@@ -102,7 +140,6 @@ class NCMRWFApp extends StatelessWidget {
       brightness: Brightness.dark,
       scaffoldBackgroundColor: const Color(0xFF060D1A),
     ),
-    // ✅ AUTH: Route directly to MainShell if session valid, else LoginScreen
     home: isLoggedIn
         ? const MainShell()
         : LoginScreen(sessionExpired: sessionExpired),
@@ -110,7 +147,6 @@ class NCMRWFApp extends StatelessWidget {
 }
 
 // ─── AppTimeTheme ─────────────────────────────────────────────────────────────
-// (unchanged — kept as-is for any screens that already use it)
 class AppTimeTheme {
   final List<Color> bgColors;
   final List<Color> glowColors;
@@ -447,8 +483,10 @@ class _MainShellState extends State<MainShell>
 
     final tt        = TimeTheme.of();
     final condTheme = WeatherConditionTheme.of(condition);
-    final navColor  = condTheme.skyGradient.last
-        .withOpacity(tt.periodLabel == 'Night' ? 0.96 : 0.88);
+    final isNight = tt.periodLabel == 'Night';
+    final Color navColor = isNight
+        ? tt.sheetGrad2.withOpacity(0.97)          // #040A18 deep navy
+        : condTheme.skyGradient.last.withOpacity(0.88);
     final activeAccent = tt.accent;
 
     final bool onMap = _idx == 4;
@@ -475,7 +513,6 @@ class _MainShellState extends State<MainShell>
           clipBehavior: Clip.none,
           alignment: Alignment.bottomCenter,
           children: [
-            // ── Nav bar ─────────────────────────────────────────────────
             Positioned(
               left: 0, right: 0, bottom: 0,
               height: barHeight + bottomPad,
@@ -518,8 +555,6 @@ class _MainShellState extends State<MainShell>
                 ),
               ),
             ),
-
-            // ── FAB ─────────────────────────────────────────────────────
             Positioned(
               bottom: barHeight + bottomPad - fabR + fabCenterAboveBar,
               child: ScaleTransition(
@@ -561,7 +596,6 @@ class _MainShellState extends State<MainShell>
     );
   }
 
-  // ── FAB gradient per time period ─────────────────────────────────────────
   List<Color> _fabGradientForPeriod(String period) {
     switch (period) {
       case 'Dawn':

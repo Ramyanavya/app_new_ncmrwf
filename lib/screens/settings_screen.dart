@@ -7,7 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_providers.dart';
 import '../services/translator_service.dart';
 import '../utils/app_strings.dart';
-import '../utils/time_theme.dart'; // ← NEW
+import '../utils/time_theme.dart';
+import '../utils/translated_text.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Frosted card — tint driven by TimeTheme accent
@@ -446,13 +447,11 @@ class _SettingsBodyState extends State<_SettingsBody> {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  /// Returns the icon for the current period badge (Day or Night only).
   IconData _periodIcon(String label) {
-    switch (label) {
-      case 'Dawn':  return Icons.wb_twilight_rounded;
-      case 'Dusk':  return Icons.wb_twilight_rounded;
-      case 'Night': return Icons.nightlight_round;
-      default:      return Icons.wb_sunny_rounded;
-    }
+    if (label == 'Night') return Icons.nightlight_round;
+    return Icons.wb_sunny_rounded;
   }
 
   List<Widget> _nightParticles() => [

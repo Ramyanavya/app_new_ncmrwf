@@ -548,16 +548,14 @@ class _AqiData {
   }
 
   static Color aqiColor(int v) {
-    if (v <= 50)  return const Color(0xFF00C853);  // Good — green
-    if (v <= 100) return const Color(0xFF64DD17);  // Satisfactory — light green
-    if (v <= 200) return const Color(0xFFFFD600);  // Moderate — yellow
-    if (v <= 300) return const Color(0xFFFF6D00);  // Poor — orange
-    if (v <= 400) return const Color(0xFFD50000);  // Very Poor — red
-    return const Color(0xFF6A1B9A);                 // Severe — purple
+    if (v <= 50)  return const Color(0xFF00C853);
+    if (v <= 100) return const Color(0xFF64DD17);
+    if (v <= 200) return const Color(0xFFFFD600);
+    if (v <= 300) return const Color(0xFFFF6D00);
+    if (v <= 400) return const Color(0xFFD50000);
+    return const Color(0xFF6A1B9A);
   }
 
-  /// Parse the CPCB iit_rss_feed_with_coordinates response.
-  /// Finds the nearest monitoring station to [lat, lon] using Haversine distance.
   static _AqiData fromCpcbFeed(Map<String, dynamic> json, double lat, double lon) {
     final countries = json['country'] as List? ?? [];
     double bestDist = double.infinity;
@@ -570,7 +568,6 @@ class _AqiData {
       for (final city in cities) {
         final stations = (city['stationsInCity'] as List?) ?? [];
         for (final station in stations) {
-          // Parse AQI value — may be int or "NA"
           final aqiRaw = station['airQualityIndexValue'];
           if (aqiRaw == null || aqiRaw == 'NA') continue;
           final aqiVal = (aqiRaw as num?)?.toInt() ?? 0;
@@ -604,7 +601,6 @@ class _AqiData {
     );
   }
 
-  /// Haversine distance in km between two lat/lon points
   static double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
     const R = 6371.0;
     final dLat = _toRad(lat2 - lat1);
@@ -667,6 +663,13 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   bool _aiLoading = false;
   String? _lastAiKey;
 
+  // ── Condition insight state (AI-generated) ─────────────────────────────────
+  String? _conditionTitle;
+  String? _conditionBody;
+  String? _conditionExtra;
+  bool    _conditionLoading = false;
+  String? _lastConditionKey;
+
   // ── AQI state ──────────────────────────────────────────────────────────────
   _AqiData? _aqiData;
   bool _aqiLoading = false;
@@ -703,6 +706,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
         _playEntry();
         _fetchPincodeFromProvider(wp);
         _fetchAqi(wp.latitude, wp.longitude);
+        _triggerConditionInsight(wp);
       } else if (wp.status == WeatherStatus.initial) {
         wp.fetchWeatherForCurrentLocation();
       }
@@ -735,6 +739,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       _playEntry();
       _fetchPincodeFromProvider(wp);
       _fetchAqi(wp.latitude, wp.longitude);
+      _triggerConditionInsight(wp);
     }
   }
 
@@ -749,7 +754,6 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
 
   // ── CPCB AQI fetch ─────────────────────────────────────────────────────────
   Future<void> _fetchAqi(double lat, double lon) async {
-    // Skip if we already have data for this exact location
     if (_lastAqiLat == lat && _lastAqiLon == lon && _aqiData != null) return;
     _lastAqiLat = lat;
     _lastAqiLon = lon;
@@ -776,7 +780,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     }
   }
 
-  // ── Claude (Anthropic) weather description ───────────────────────────────
+  // ── Claude (Anthropic) weather description ────────────────────────────────
   Future<void> _fetchAiDescription({
     required String location,
     required String condition,
@@ -842,6 +846,120 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     }
   }
 
+  // ── Trigger condition insight safely (outside build) ─────────────────────
+  void _triggerConditionInsight(WeatherProvider wp) {
+    if (!mounted || wp.currentWeather == null) return;
+    final day = _getActiveDay(wp);
+    _fetchConditionInsight(
+      condition:  day.condition,
+      tempC:      day.temperatureC,
+      feelsLikeC: day.feelsLikeC,
+      windKmh:    day.windSpeedKmh,
+      windDir:    day.windDirection,
+      humidity:   day.humidityPercent,
+      rainMm:     day.rainMm,
+      location:   wp.placeName.isEmpty ? 'your location' : wp.placeName,
+    );
+  }
+
+  // ── NEW: Condition insight from Claude (title + body + extra) ─────────────
+  Future<void> _fetchConditionInsight({
+    required String condition,
+    required double tempC,
+    required double feelsLikeC,
+    required double windKmh,
+    required String windDir,
+    required double humidity,
+    required double rainMm,
+    required String location,
+  }) async {
+    final cacheKey =
+        '$condition|${tempC.toStringAsFixed(0)}|${feelsLikeC.toStringAsFixed(0)}|'
+        '${windKmh.toStringAsFixed(0)}|$windDir|${humidity.toStringAsFixed(0)}|'
+        '${rainMm.toStringAsFixed(1)}';
+    if (_lastConditionKey == cacheKey &&
+        _conditionTitle != null &&
+        _conditionBody  != null) return;
+    _lastConditionKey = cacheKey;
+    if (!mounted) return;
+    setState(() {
+      _conditionLoading = true;
+      _conditionTitle   = null;
+      _conditionBody    = null;
+      _conditionExtra   = null;
+    });
+
+    const anthropicKey = 'YOUR_ANTHROPIC_API_KEY';
+
+    final prompt =
+        'You are a weather assistant embedded in a weather app. '
+        'Given these current conditions for $location:\n'
+        '  Condition: $condition\n'
+        '  Temperature: ${tempC.toStringAsFixed(1)}°C\n'
+        '  Feels like: ${feelsLikeC.toStringAsFixed(1)}°C\n'
+        '  Humidity: ${humidity.toStringAsFixed(0)}%\n'
+        '  Wind: $windDir at ${windKmh.toStringAsFixed(0)} km/h\n'
+        '  Rainfall: ${rainMm.toStringAsFixed(1)} mm\n\n'
+        'Respond ONLY with a valid JSON object (no markdown, no extra keys) like:\n'
+        '{\n'
+        '  "title": "<2-4 word condition label, e.g. Sunny and Warm>",\n'
+        '  "body": "<1 sentence safety or comfort tip for residents, max 20 words>",\n'
+        '  "extra": "<1 concise data point to highlight, max 10 words, or empty string>"\n'
+        '}\n'
+        'Keep the tone friendly and practical.';
+
+    try {
+      final res = await http.post(
+        Uri.parse('https://api.anthropic.com/v1/messages'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: json.encode({
+          'model': 'claude-haiku-4-5-20251001',
+          'max_tokens': 150,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
+        }),
+      ).timeout(const Duration(seconds: 20));
+
+      if (res.statusCode == 200) {
+        final data        = json.decode(res.body) as Map<String, dynamic>;
+        final contentList = data['content'] as List? ?? [];
+        final rawText = contentList
+            .whereType<Map<String, dynamic>>()
+            .where((b) => b['type'] == 'text')
+            .map((b) => b['text'] as String? ?? '')
+            .join(' ')
+            .trim();
+
+        // Strip any accidental markdown fences
+        final cleaned = rawText
+            .replaceAll('```json', '')
+            .replaceAll('```', '')
+            .trim();
+
+        final parsed = json.decode(cleaned) as Map<String, dynamic>;
+        if (mounted) {
+          setState(() {
+            _conditionTitle   = (parsed['title']  as String? ?? '').trim();
+            _conditionBody    = (parsed['body']    as String? ?? '').trim();
+            _conditionExtra   = (parsed['extra']   as String? ?? '').trim();
+            _conditionLoading = false;
+          });
+        }
+      } else {
+        debugPrint('[ConditionInsight] ${res.statusCode}: ${res.body}');
+        if (mounted) setState(() => _conditionLoading = false);
+      }
+    } catch (e) {
+      debugPrint('[ConditionInsight] $e');
+      if (mounted) setState(() => _conditionLoading = false);
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────
   void _alignToToday(WeatherProvider wp) {
     if (wp.forecast.isEmpty) return;
@@ -887,7 +1005,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   String _formatDate(DateTime d) {
     const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const dy = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-    return '${dy[d.weekday-1]}, ${d.day} ${mo[d.month-1]} ${d.year}';
+    return '${tl(dy[d.weekday-1])}, ${d.day} ${tl(mo[d.month-1])} ${d.year}';
   }
 
   DateTime _dateForSelDay(WeatherProvider wp) {
@@ -908,6 +1026,9 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     if (!mounted) return;
     setState(() => _selDay = i);
     _daySwitchC?.forward();
+    // Fetch new insight for the newly selected day
+    final wp = context.read<WeatherProvider>();
+    _triggerConditionInsight(wp);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1017,9 +1138,9 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     if (dt == null) return '--';
     final ist = dt.toUtc().add(const Duration(hours: 5, minutes: 30));
     final h   = ist.hour;
-    if (h == 0)  return '12AM';
-    if (h == 12) return '12PM';
-    return h < 12 ? '${h}AM' : '${h - 12}PM';
+    if (h == 0)  return '12${tl('AM')}';
+    if (h == 12) return '12${tl('PM')}';
+    return h < 12 ? '$h${tl('AM')}' : '${h - 12}${tl('PM')}';
   }
 
   List<HourlyWeather> _buildTodayHourlySlots(WeatherProvider wp) {
@@ -1194,7 +1315,6 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
               FadeTransition(opacity: daySwitch,
                   child: _buildHero(wp, day, dayTheme, dayCT, tod)),
               const SizedBox(height: 16),
-              // ── AQI card — CPCB live data (above stat row, matches Image 1) ──
               Padding(padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: _buildAqiCard()),
               const SizedBox(height: 12),
@@ -1285,50 +1405,65 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                 const SizedBox(width: 4),
                 _pincodeLoading
                     ? TranslatedText('Loading…', style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 11))
-                    : Text('PIN: $_pincode', style: GoogleFonts.dmSans(color: Colors.white60,
+                    : TranslatedText('PIN: $_pincode', style: GoogleFonts.dmSans(color: Colors.white60,
                     fontSize: 11, fontWeight: FontWeight.w600)),
               ]),
             ],
             const SizedBox(height: 8),
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(day.temperatureC.toStringAsFixed(0),
-                  style: GoogleFonts.dmSans(color: Colors.white, fontSize: 96,
-                      fontWeight: FontWeight.w100, height: 0.85,
-                      shadows: [Shadow(color: Colors.black.withOpacity(0.25), blurRadius: 16)])),
-              Padding(padding: const EdgeInsets.only(top: 10),
-                  child: Text('°', style: GoogleFonts.dmSans(color: Colors.white,
-                      fontSize: 42, fontWeight: FontWeight.w200))),
-              const Spacer(),
-              Padding(padding: const EdgeInsets.only(top: 8),
-                  child: _buildHeroIcon(day.condition, size: 110)),
+              Builder(builder: (ctx) {
+                final sw = MediaQuery.of(ctx).size.width;
+                final tempFs  = (sw * 0.22).clamp(72.0, 108.0);
+                final degFs   = (sw * 0.10).clamp(32.0, 48.0);
+                final iconSz  = (sw * 0.26).clamp(90.0, 130.0);
+                return Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(day.temperatureC.toStringAsFixed(0),
+                      style: GoogleFonts.dmSans(color: Colors.white, fontSize: tempFs,
+                          fontWeight: FontWeight.w100, height: 0.85,
+                          shadows: [Shadow(color: Colors.black.withOpacity(0.25), blurRadius: 16)])),
+                  Padding(padding: EdgeInsets.only(top: tempFs * 0.10),
+                      child: Text('°', style: GoogleFonts.dmSans(color: Colors.white,
+                          fontSize: degFs, fontWeight: FontWeight.w200))),
+                  const Spacer(),
+                  Padding(padding: EdgeInsets.only(top: 8),
+                      child: _buildHeroIcon(day.condition, size: iconSz)),
+                ]));
+              }),
             ]),
             const SizedBox(height: 2),
-            TranslatedText(day.condition, style: GoogleFonts.dmSans(color: Colors.white,
-                fontSize: 24, fontWeight: FontWeight.w500,
-                shadows: [Shadow(color: Colors.black.withOpacity(0.3), blurRadius: 8)])),
-            const SizedBox(height: 6),
-            Row(children: [
-              if (day.tempMax != 0)
-                Text('↑${day.tempMax.toStringAsFixed(0)}° / ↓${day.tempMin.toStringAsFixed(0)}°',
-                    style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.90), fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        shadows: [Shadow(color: Colors.black.withOpacity(0.4), blurRadius: 6)])),
-              const SizedBox(width: 14),
-              FutureBuilder<String>(
-                future: TranslatorService.translate('Feels like'),
-                initialData: 'Feels like',
-                builder: (_, s) => Text('${s.data} ${day.feelsLikeC.toStringAsFixed(0)}°',
-                    style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.80), fontSize: 14,
-                        shadows: [Shadow(color: Colors.black.withOpacity(0.4), blurRadius: 6)])),
-              ),
-            ]),
+            LayoutBuilder(builder: (ctx, _) {
+              final sw = MediaQuery.of(ctx).size.width;
+              final condFs = (sw * 0.056).clamp(18.0, 28.0);
+              final subFs  = (sw * 0.035).clamp(12.0, 16.0);
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TranslatedText(day.condition, style: GoogleFonts.dmSans(color: Colors.white,
+                    fontSize: condFs, fontWeight: FontWeight.w500,
+                    shadows: [Shadow(color: Colors.black.withOpacity(0.3), blurRadius: 8)])),
+                const SizedBox(height: 6),
+                Row(children: [
+                  if (day.tempMax != 0)
+                    TranslatedText('↑${day.tempMax.toStringAsFixed(0)}° / ↓${day.tempMin.toStringAsFixed(0)}°',
+                        style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.90), fontSize: subFs,
+                            fontWeight: FontWeight.w600,
+                            shadows: [Shadow(color: Colors.black.withOpacity(0.4), blurRadius: 6)])),
+                  const SizedBox(width: 14),
+                  FutureBuilder<String>(
+                    future: TranslatorService.translate('Feels like'),
+                    initialData: 'Feels like',
+                    builder: (_, s) => Text('${s.data} ${day.feelsLikeC.toStringAsFixed(0)}°',
+                        style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.80), fontSize: subFs - 1,
+                            shadows: [Shadow(color: Colors.black.withOpacity(0.4), blurRadius: 6)])),
+                  ),
+                ]),
+              ]);
+            }),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(color: Colors.white.withOpacity(0.18),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.white.withOpacity(0.25))),
-              child: Text(_formatDate(_dateForSelDay(wp)), style: GoogleFonts.dmSans(
+              child: TranslatedText(_formatDate(_dateForSelDay(wp)), style: GoogleFonts.dmSans(
                   color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
           ]));
@@ -1355,7 +1490,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     return AnimatedWeatherIcon(condition: condition, size: size);
   }
 
-  // ── CPCB AQI card — compact style matching Image 1 ────────────────────────
+  // ── CPCB AQI card ─────────────────────────────────────────────────────────
   Widget _buildAqiCard() {
     if (_aqiLoading && _aqiData == null) {
       return _FrostCard(
@@ -1381,16 +1516,13 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     final station   = _aqiData!.stationName;
     final pollutant = _aqiData!.predominantParameter;
 
-    // ── Segmented color bar — 5 fixed bands (Good → Severe) ───────────────
-    // Exactly like Image 1: green·green·yellow·orange·red segments
     const bandColors = [
-      Color(0xFF00C853), // Good
-      Color(0xFF64DD17), // Satisfactory
-      Color(0xFFFFD600), // Moderate
-      Color(0xFFFF6D00), // Poor
-      Color(0xFFD50000), // Very Poor / Severe
+      Color(0xFF00C853),
+      Color(0xFF64DD17),
+      Color(0xFFFFD600),
+      Color(0xFFFF6D00),
+      Color(0xFFD50000),
     ];
-    // Which band is active? aqi ≤100→0, ≤200→1, ≤300→2, ≤400→3, else→4
     final activeBand = aqi <= 100 ? 0 : aqi <= 200 ? 1 : aqi <= 300 ? 2 : aqi <= 400 ? 3 : 4;
 
     return _FrostCard(
@@ -1398,11 +1530,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       blurSigma: 18,
       bgOpacity: 0.18,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-        // ── Main row: circle on left, text on right ────────────────────────
         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-
-          // ── Circular badge: leaf icon + AQI number (Image 1 style) ───────
           Container(
             width: 62, height: 62,
             decoration: BoxDecoration(
@@ -1417,50 +1545,36 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                   color: aqiColor, fontSize: 16, fontWeight: FontWeight.w900, height: 1.1)),
             ]),
           ),
-
           const SizedBox(width: 14),
-
-          // ── Right side: title + label badge + description ─────────────────
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-            // Title + CPCB source tag
             Row(children: [
-              Text('Air Quality', style: GoogleFonts.dmSans(
+              TranslatedText('Air Quality', style: GoogleFonts.dmSans(
                   color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
               const SizedBox(width: 8),
-              // Label badge (Moderate / Poor etc.) — same pill style as Image 1
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                 decoration: BoxDecoration(
                   color: aqiColor,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(aqiLabel, style: GoogleFonts.dmSans(
+                child: TranslatedText(aqiLabel, style: GoogleFonts.dmSans(
                     color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
               ),
             ]),
-
             const SizedBox(height: 5),
-
-            // Description text
-            Text(aqiDesc, style: GoogleFonts.dmSans(
+            TranslatedText(aqiDesc, style: GoogleFonts.dmSans(
                 color: Colors.white70, fontSize: 12, height: 1.4),
                 maxLines: 2, overflow: TextOverflow.ellipsis),
-
-            // Pollutant (compact, only if available)
             if (pollutant.isNotEmpty && pollutant != 'NA') ...[
               const SizedBox(height: 4),
-              Text('Main pollutant: $pollutant',
+              TranslatedText('Main pollutant: $pollutant',
                   style: GoogleFonts.dmSans(
                       color: aqiColor.withOpacity(0.85), fontSize: 11,
                       fontWeight: FontWeight.w600)),
             ],
           ])),
         ]),
-
         const SizedBox(height: 12),
-
-        // ── Segmented color bar — 5 equal bands (Image 1 style) ───────────
         LayoutBuilder(builder: (_, c) {
           const gap = 3.0;
           final segW = (c.maxWidth - gap * 4) / 5;
@@ -1481,18 +1595,15 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
             }),
           );
         }),
-
-        // ── Station name ──────────────────────────────────────────────────
         if (station.isNotEmpty) ...[
           const SizedBox(height: 8),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Icon(Icons.location_on_rounded, color: Colors.white30, size: 11),
             const SizedBox(width: 3),
-            Expanded(child: Text(station, style: GoogleFonts.dmSans(
+            Expanded(child: TranslatedText(station, style: GoogleFonts.dmSans(
                 color: Colors.white38, fontSize: 10, height: 1.3),
                 maxLines: 1, overflow: TextOverflow.ellipsis)),
-            // CPCB source tag (small, right-aligned)
-            Text('CPCB', style: GoogleFonts.dmSans(
+            TranslatedText('CPCB', style: GoogleFonts.dmSans(
                 color: Colors.white30, fontSize: 9, fontWeight: FontWeight.w700,
                 letterSpacing: 0.5)),
           ]),
@@ -1532,7 +1643,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                 style: GoogleFonts.dmSans(color: const Color(0xFFFFB300),
                     fontSize: 12, fontWeight: FontWeight.w700)),
             const SizedBox(height: 5),
-            Text(_aiDescription!,
+            TranslatedText(_aiDescription!,
                 style: GoogleFonts.dmSans(color: Colors.white, fontSize: 13, height: 1.5)),
           ])),
         ]));
@@ -1541,9 +1652,9 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   // ── 3-tab bar ──────────────────────────────────────────────────────────────
   Widget _buildTabBar(WeatherConditionTheme theme) {
     final tabDefs = [
-      (_MainTab.temperature,   tl('Temperature')),
-      (_MainTab.precipitation, tl('Precipitation')),
-      (_MainTab.wind,          tl('Wind')),
+      (_MainTab.temperature,   'Temperature'),
+      (_MainTab.precipitation, 'Precipitation'),
+      (_MainTab.wind,          'Wind'),
     ];
 
     return ClipRRect(
@@ -1576,7 +1687,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             child: FittedBox(
                               fit: BoxFit.scaleDown,
-                              child: Text(tab.$2, textAlign: TextAlign.center,
+                              child: TranslatedText(tab.$2, textAlign: TextAlign.center,
                                   style: GoogleFonts.dmSans(
                                     color: isActive
                                         ? const Color(0xFFFFB300)
@@ -1655,24 +1766,26 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
 
   Widget _tempHourlyScroll(List<HourlyWeather> hrs,
       WeatherConditionTheme theme, _ConditionType ct) {
-    const slotW = 60.0;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: hrs.map((h) => SizedBox(width: slotW, child: _tempSlot(h, ct))).toList()),
-        const SizedBox(height: 10),
-        SizedBox(width: slotW * hrs.length, height: 24, child: CustomPaint(
-            painter: _TempBarPainter(positions: _normTemp(hrs), accent: theme.accentColor))),
-        const SizedBox(height: 10),
-        Row(children: hrs.map((h) => SizedBox(width: slotW, child: Column(children: [
-          Icon(Icons.water_drop_rounded,
-              color: h.rainMm > 0 ? Colors.lightBlue[300] : Colors.white30, size: 11),
-          Text(h.rainMm > 0 ? '${h.rainMm.toStringAsFixed(0)}%' : '0%',
-              style: GoogleFonts.dmSans(
-                  color: h.rainMm > 0 ? Colors.lightBlue[300] : Colors.white38, fontSize: 10)),
-        ]))).toList()),
-      ]),
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      final slotW = math.max(constraints.maxWidth / hrs.length, 60.0);
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: hrs.map((h) => SizedBox(width: slotW, child: _tempSlot(h, ct))).toList()),
+          const SizedBox(height: 10),
+          SizedBox(width: slotW * hrs.length, height: 24, child: CustomPaint(
+              painter: _TempBarPainter(positions: _normTemp(hrs), accent: theme.accentColor))),
+          const SizedBox(height: 10),
+          Row(children: hrs.map((h) => SizedBox(width: slotW, child: Column(children: [
+            Icon(Icons.water_drop_rounded,
+                color: h.rainMm > 0 ? Colors.lightBlue[300] : Colors.white30, size: 11),
+            Text(h.rainMm > 0 ? '${h.rainMm.toStringAsFixed(0)}%' : '0%',
+                style: GoogleFonts.dmSans(
+                    color: h.rainMm > 0 ? Colors.lightBlue[300] : Colors.white38, fontSize: 10)),
+          ]))).toList()),
+        ]),
+      );
+    });
   }
 
   Widget _tempSlot(HourlyWeather h, _ConditionType ct) {
@@ -1680,7 +1793,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     final isNight = _slotIsNight(h.datetime);
     final ibg     = isNight ? const Color(0xFF1A237E) : _iconBg(ct);
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      Text(isNow ? tl('Now') : _slotLabel(h.datetime), style: GoogleFonts.dmSans(
+      TranslatedText(isNow ? 'Now' : _slotLabel(h.datetime), style: GoogleFonts.dmSans(
           color: isNow ? Colors.white : Colors.white.withOpacity(0.80), fontSize: 12,
           fontWeight: isNow ? FontWeight.w800 : FontWeight.w500)),
       const SizedBox(height: 5),
@@ -1731,45 +1844,75 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   }
 
   Widget _precipHourlySlots(List<HourlyWeather> hrs) {
-    const slotW = 56.0;
-    final maxR = hrs.map((h) => h.rainMm).fold(0.0, (a, b) => a > b ? a : b).clamp(0.1, double.infinity);
-    return LayoutBuilder(builder: (context, constraints) {
-      final totalW = math.max(constraints.maxWidth, slotW * hrs.length);
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: SizedBox(
-          width: totalW,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: hrs.map((h) {
-              final pct = h.rainMm > 0 ? '${(h.rainMm / maxR * 100).round()}%' : '0%';
-              return SizedBox(width: totalW / hrs.length,
-                  child: Center(child: Text(pct, style: GoogleFonts.dmSans(
-                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500))));
-            }).toList()),
+    final maxR = hrs
+        .map((h) => h.rainMm)
+        .fold(0.0, (a, b) => a > b ? a : b)
+        .clamp(0.1, double.infinity);
+
+    // Percentage row
+    final pctRow = Row(
+      children: hrs.map((h) {
+        final pct = h.rainMm > 0 ? '${(h.rainMm / maxR * 100).round()}%' : '0%';
+        return Expanded(
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                pct,
+                style: GoogleFonts.dmSans(
+                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+
+    // Label row
+    final labelRow = Row(
+      children: hrs.map((h) {
+        final isNow = h.label == 'Now';
+        return Expanded(
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: TranslatedText(
+                isNow ? 'Now' : _slotLabel(h.datetime),
+                style: GoogleFonts.dmSans(
+                  color: isNow ? Colors.white : Colors.white.withOpacity(0.80),
+                  fontSize: 12,
+                  fontWeight: isNow ? FontWeight.w800 : FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalW = constraints.maxWidth;
+        final slotW  = totalW / hrs.length;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            pctRow,
             const SizedBox(height: 10),
             SizedBox(
               height: 18,
+              width: totalW,
               child: CustomPaint(
                 size: Size(totalW, 18),
-                painter: _PrecipBarPainter(hrs: hrs, maxR: maxR, slotW: totalW / hrs.length),
+                painter: _PrecipBarPainter(hrs: hrs, maxR: maxR, slotW: slotW),
               ),
             ),
             const SizedBox(height: 6),
-            Row(children: hrs.map((h) {
-              final isNow = h.label == 'Now';
-              return SizedBox(width: totalW / hrs.length,
-                  child: Center(child: Text(
-                      isNow ? tl('Now') : _slotLabel(h.datetime),
-                      style: GoogleFonts.dmSans(
-                          color: isNow ? Colors.white : Colors.white.withOpacity(0.80),
-                          fontSize: 12,
-                          fontWeight: isNow ? FontWeight.w800 : FontWeight.w500))));
-            }).toList()),
-          ]),
-        ),
-      );
-    });
+            labelRow,
+          ],
+        );
+      },
+    );
   }
 
   Widget _precipTenDayList(List<DayForecast> days) {
@@ -1787,12 +1930,12 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
           SizedBox(width: 52,
               child: isToday
                   ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tl('Today'), style: GoogleFonts.dmSans(color: Colors.white,
+                TranslatedText('Today', style: GoogleFonts.dmSans(color: Colors.white,
                     fontSize: 14, fontWeight: FontWeight.w700)),
-                Text(tl(df.day), style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.70),
+                TranslatedText(df.day, style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.70),
                     fontSize: 11, fontWeight: FontWeight.w500)),
               ])
-                  : Text(tl(df.day), style: GoogleFonts.dmSans(color: Colors.white,
+                  : TranslatedText(df.day, style: GoogleFonts.dmSans(color: Colors.white,
                   fontSize: 15, fontWeight: FontWeight.w600))),
           Icon(condIcon, color: Colors.white.withOpacity(0.85), size: 20),
           const SizedBox(width: 10),
@@ -1923,7 +2066,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                         color: i == 0 ? theme.accentColor : Colors.white,
                         fontSize: 11, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
-                    Text(i == 0 ? tl('Today') : tl(df.day), style: GoogleFonts.dmSans(
+                    TranslatedText(i == 0 ? 'Today' : df.day, style: GoogleFonts.dmSans(
                         color: i == 0 ? theme.accentColor : Colors.white.withOpacity(0.80),
                         fontSize: 10, fontWeight: FontWeight.w600)),
                   ]),
@@ -1937,34 +2080,41 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   }
 
   Widget _windHourlyScroll(List<HourlyWeather> hrs, WeatherConditionTheme theme) {
-    const slotW = 58.0;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
-      child: Row(children: hrs.map((h) {
-        final isNow = h.label == 'Now';
-        return SizedBox(width: slotW, child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('${h.windSpeedKmh.toStringAsFixed(0)} km/h',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.dmSans(color: Colors.white,
-                    fontSize: 13, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Transform.rotate(
-              angle: _dirRad(h.windDirection),
-              child: const Icon(Icons.navigation_rounded, color: Color(0xFFFFB300), size: 22),
-            ),
-            const SizedBox(height: 8),
-            Text(isNow ? tl('Now') : _slotLabel(h.datetime),
-                textAlign: TextAlign.center,
-                style: GoogleFonts.dmSans(
-                    color: isNow ? Colors.white : Colors.white.withOpacity(0.80),
-                    fontSize: 12,
-                    fontWeight: isNow ? FontWeight.w800 : FontWeight.w500)),
-          ],
-        ));
-      }).toList()),
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      // Dynamically size each slot to fit screen, minimum 64px
+      final slotW = math.max(constraints.maxWidth / hrs.length, 64.0);
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
+        child: Row(children: hrs.map((h) {
+          final isNow = h.label == 'Now';
+          return SizedBox(width: slotW, child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Speed + unit on one line, never wraps
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text('${h.windSpeedKmh.toStringAsFixed(0)} km/h',
+                    maxLines: 1,
+                    style: GoogleFonts.dmSans(color: Colors.white,
+                        fontSize: 13, fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(height: 8),
+              Transform.rotate(
+                angle: _dirRad(h.windDirection),
+                child: const Icon(Icons.navigation_rounded, color: Color(0xFFFFB300), size: 22),
+              ),
+              const SizedBox(height: 8),
+              TranslatedText(isNow ? 'Now' : _slotLabel(h.datetime),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.dmSans(
+                      color: isNow ? Colors.white : Colors.white.withOpacity(0.80),
+                      fontSize: 12,
+                      fontWeight: isNow ? FontWeight.w800 : FontWeight.w500)),
+            ],
+          ));
+        }).toList()),
+      );
+    });
   }
 
   Widget _windTenDayList(List<DayForecast> days) {
@@ -1973,7 +2123,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       final wDir = df.windDirection.isNotEmpty ? df.windDirection : 'N';
       return Padding(padding: const EdgeInsets.only(bottom: 12),
           child: Row(children: [
-            SizedBox(width: 46, child: Text(isToday ? tl('Today') : tl(df.day),
+            SizedBox(width: 46, child: TranslatedText(isToday ? 'Today' : df.day,
                 style: GoogleFonts.dmSans(color: Colors.white, fontSize: 13,
                     fontWeight: isToday ? FontWeight.w700 : FontWeight.w600))),
             Icon(_iconNow(df.condition), color: Colors.white70, size: 18),
@@ -1981,7 +2131,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
             Transform.rotate(angle: _dirRad(wDir),
                 child: const Icon(Icons.navigation_rounded, color: Color(0xFFFFB300), size: 14)),
             const SizedBox(width: 4),
-            Text(wDir, style: GoogleFonts.dmSans(color: const Color(0xFFFFB300),
+            TranslatedText(wDir, style: GoogleFonts.dmSans(color: const Color(0xFFFFB300),
                 fontSize: 12, fontWeight: FontWeight.w600)),
             const Spacer(),
             Text('${df.tempMax.toStringAsFixed(0)}°',
@@ -2014,30 +2164,34 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                 Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   FittedBox(
                     fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
-                    child: RichText(text: TextSpan(children: [
-                      TextSpan(text: '${day.windSpeedKmh.toStringAsFixed(0)}',
+                    child: Row(children: [
+                      Text('${day.windSpeedKmh.toStringAsFixed(0)}',
                           style: GoogleFonts.dmSans(color: Colors.white,
                               fontSize: 48, fontWeight: FontWeight.w300)),
-                      TextSpan(text: ' km/h', style: GoogleFonts.dmSans(
+                      TranslatedText(' km/h', style: GoogleFonts.dmSans(
                           color: Colors.white70, fontSize: 13)),
-                    ])),
+                    ]),
                   ),
                   const SizedBox(height: 10),
                   Row(children: [
                     const Icon(Icons.multiple_stop_rounded, color: Color(0xFFFFB300), size: 15),
                     const SizedBox(width: 5),
-                    Flexible(child: Text('${tl("Wind")}: ${day.windDirection}',
-                        style: GoogleFonts.dmSans(color: Colors.white,
-                            fontSize: 13, fontWeight: FontWeight.w600),
-                        overflow: TextOverflow.ellipsis)),
+                    Flexible(child: Row(children: [
+                      TranslatedText('Wind', style: GoogleFonts.dmSans(color: Colors.white,
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text(': ${day.windDirection}', style: GoogleFonts.dmSans(color: Colors.white,
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                    ])),
                   ]),
                   const SizedBox(height: 6),
                   Row(children: [
                     const Icon(Icons.flag_rounded, color: Colors.white54, size: 14),
                     const SizedBox(width: 5),
-                    Flexible(child: Text('${tl("Gusts")}: ~${gustKmh.toStringAsFixed(0)} km/h',
-                        style: GoogleFonts.dmSans(color: Colors.white70, fontSize: 12),
-                        overflow: TextOverflow.ellipsis)),
+                    Flexible(child: Row(children: [
+                      TranslatedText('Gusts', style: GoogleFonts.dmSans(color: Colors.white70, fontSize: 12)),
+                      TranslatedText(': ~${gustKmh.toStringAsFixed(0)} km/h',
+                          style: GoogleFonts.dmSans(color: Colors.white70, fontSize: 12)),
+                    ])),
                   ]),
                 ])),
               ]),
@@ -2062,8 +2216,8 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   Widget _compStat(String lbl, String val, IconData icon, Color c) =>
       Column(children: [
         Icon(icon, color: c, size: 18), const SizedBox(height: 4),
-        Text(val, style: GoogleFonts.dmSans(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
-        Text(lbl, style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 10)),
+        TranslatedText(val, style: GoogleFonts.dmSans(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+        TranslatedText(lbl, style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 10)),
       ]);
 
   // ── Day strip ──────────────────────────────────────────────────────────────
@@ -2105,7 +2259,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                                     color: sel ? Colors.white.withOpacity(0.65) : Colors.white.withOpacity(0.22),
                                     width: sel ? 1.5 : 1)),
                             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Text(isToday ? tl('Today') : tl(df.day), style: GoogleFonts.dmSans(
+                              TranslatedText(isToday ? 'Today' : df.day, style: GoogleFonts.dmSans(
                                   color: sel ? Colors.white : Colors.white.withOpacity(0.85),
                                   fontSize: isToday ? 10 : 12, fontWeight: FontWeight.w700)),
                               const SizedBox(height: 5),
@@ -2119,6 +2273,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
           })),
     ]);
   }
+
 
   // ── Stat row ──────────────────────────────────────────────────────────────
   Widget _buildStatRow(_ActiveDay day, WeatherConditionTheme theme, _ConditionType ct) =>
@@ -2135,14 +2290,17 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
 
   Widget _statChip(IconData icon, Color c, String val, String lbl) =>
       Expanded(child: _FrostCard(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
           radius: 18, blurSigma: 16, bgOpacity: 0.22,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(icon, color: c, size: 22), const SizedBox(height: 6),
-            TranslatedText(val, style: GoogleFonts.dmSans(color: Colors.white, fontSize: 13,
-                fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
+            FittedBox(fit: BoxFit.scaleDown, child: TranslatedText(val,
+                style: GoogleFonts.dmSans(color: Colors.white, fontSize: 13,
+                    fontWeight: FontWeight.w800), maxLines: 1)),
             const SizedBox(height: 3),
-            TranslatedText(lbl, style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.80), fontSize: 11, fontWeight: FontWeight.w500)),
+            FittedBox(fit: BoxFit.scaleDown, child: TranslatedText(lbl,
+                style: GoogleFonts.dmSans(color: Colors.white.withOpacity(0.80),
+                    fontSize: 11, fontWeight: FontWeight.w500), maxLines: 1)),
           ])));
 
   // ── Temp graph ─────────────────────────────────────────────────────────────
@@ -2172,9 +2330,9 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
           ),
           const SizedBox(height: 6),
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text('Min: ${wp.minTemp.toStringAsFixed(1)}°C',
+            TranslatedText('Min: ${wp.minTemp.toStringAsFixed(1)}°C',
                 style: GoogleFonts.dmSans(color: Colors.white38, fontSize: 10)),
-            Text('Max: ${wp.maxTemp.toStringAsFixed(1)}°C',
+            TranslatedText('Max: ${wp.maxTemp.toStringAsFixed(1)}°C',
                 style: GoogleFonts.dmSans(color: Colors.white38, fontSize: 10)),
           ]),
         ]));
@@ -2188,36 +2346,67 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     return r;
   }
 
-  // ── Condition card ─────────────────────────────────────────────────────────
+  // ── Condition card — AI-powered, no hardcoded text ────────────────────────
   Widget _buildConditionCard(_ActiveDay day, WeatherConditionTheme theme, _ConditionType ct) {
+    // Map condition type → icon + accent colour (visual logic unchanged)
+    final IconData icon;
+    final Color    accentC;
+    final Color?   tint;
+    String?        badge;
+
     switch (ct) {
       case _ConditionType.sunny:
-        return _frostInfo(Icons.wb_sunny_rounded, const Color(0xFFFFD54F), tl('Sunny'),
-            tl('UV exposure may be high. Stay hydrated and wear sunscreen.'),
-            extra: 'Feels ${day.feelsLikeC.toStringAsFixed(1)}°C');
+        icon = Icons.wb_sunny_rounded; accentC = const Color(0xFFFFD54F); tint = null; badge = null;
+        break;
       case _ConditionType.rainy:
-        return _frostInfo(Icons.water_drop_rounded, const Color(0xFF64B5F6), tl('Rain Expected'),
-            tl('Carry an umbrella. Road flooding possible in low areas.'),
-            extra: day.rainMm > 0 ? '${day.rainMm.toStringAsFixed(1)} mm expected' : null);
+        icon = Icons.water_drop_rounded; accentC = const Color(0xFF64B5F6); tint = null; badge = null;
+        break;
       case _ConditionType.stormy:
-        return _frostInfo(Icons.thunderstorm_rounded, const Color(0xFFFFEE58), tl('Thunderstorm Alert'),
-            tl('Stay indoors. Avoid open fields and tall structures.'),
-            badge: '⚡ High risk', tint: const Color(0xFF311B92));
+        icon = Icons.thunderstorm_rounded; accentC = const Color(0xFFFFEE58);
+        tint = const Color(0xFF311B92); badge = '⚡ High risk';
+        break;
       case _ConditionType.snowy:
-        return _frostInfo(Icons.ac_unit_rounded, const Color(0xFFB3E5FC), tl('Snow & Cold'),
-            tl('Layer up and watch for icy roads.'),
-            extra: '${day.temperatureC.toStringAsFixed(1)}°C current');
+        icon = Icons.ac_unit_rounded; accentC = const Color(0xFFB3E5FC); tint = null; badge = null;
+        break;
       case _ConditionType.cloudy:
-        return _frostInfo(Icons.cloud_rounded, const Color(0xFFB0BEC5), tl('Cloudy / Haze'),
-            tl('Reduced visibility. Sensitive individuals limit outdoor exposure.'));
+        icon = Icons.cloud_rounded; accentC = const Color(0xFFB0BEC5); tint = null; badge = null;
+        break;
       case _ConditionType.windy:
-        return _frostInfo(Icons.air_rounded, const Color(0xFF80DEEA), tl('Windy'),
-            tl('Secure loose objects. Gusty winds may affect travel.'),
-            extra: '${day.windSpeedKmh.toStringAsFixed(1)} km/h · ${day.windDirection}');
+        icon = Icons.air_rounded; accentC = const Color(0xFF80DEEA); tint = null; badge = null;
+        break;
       default:
-        return _frostInfo(Icons.wb_cloudy_rounded, Colors.white60,
-            tl(day.condition), tl('Forecast data from NCMRWF NWP Model.'));
+        icon = Icons.wb_cloudy_rounded; accentC = Colors.white60; tint = null; badge = null;
     }
+
+    // Loading state
+    if (_conditionLoading && _conditionTitle == null) {
+      return _FrostCard(
+        padding: const EdgeInsets.all(16),
+        blurSigma: 18,
+        bgOpacity: tint != null ? 0.22 : 0.15,
+        tint: tint,
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: accentC.withOpacity(0.20)),
+            child: Icon(icon, color: accentC, size: 24),
+          ),
+          const SizedBox(width: 12),
+          const SizedBox(width: 16, height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white38)),
+          const SizedBox(width: 10),
+          TranslatedText('Loading insight…',
+              style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 12)),
+        ]),
+      );
+    }
+
+    // AI text — fall back to condition string if API failed
+    final title = (_conditionTitle?.isNotEmpty ?? false) ? _conditionTitle! : day.condition;
+    final body  = (_conditionBody?.isNotEmpty  ?? false) ? _conditionBody!  : 'Forecast data from NCMRWF NWP Model.';
+    final extra = (_conditionExtra?.isNotEmpty ?? false) ? _conditionExtra  : null;
+
+    return _frostInfo(icon, accentC, title, body, extra: extra, badge: badge, tint: tint);
   }
 
   Widget _frostInfo(IconData icon, Color c, String title, String body,
@@ -2275,14 +2464,13 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
               child: Row(children: [
                 Icon(Icons.info_rounded, color: Colors.amber[300], size: 18),
                 const SizedBox(width: 10),
-                Expanded(child: RichText(text: TextSpan(
-                    style: GoogleFonts.dmSans(color: Colors.amber[100], fontSize: 12, height: 1.5),
-                    children: [
-                      TextSpan(text: tl('Official India weather alerts: ')),
-                      TextSpan(text: 'mausam.imd.gov.in', style: GoogleFonts.dmSans(
-                          color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline, decorationColor: Colors.white)),
-                    ]))),
+                Expanded(child: Row(children: [
+                  Flexible(child: TranslatedText('Official India weather alerts: ',
+                      style: GoogleFonts.dmSans(color: Colors.amber[100], fontSize: 12, height: 1.5))),
+                  const Text('mausam.imd.gov.in', style: TextStyle(
+                      color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.underline, decorationColor: Colors.white)),
+                ])),
                 const SizedBox(width: 6),
                 Icon(Icons.open_in_new_rounded, color: Colors.amber[300], size: 13),
               ]))));
@@ -2325,7 +2513,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                     Expanded(child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Authorized Users Only',
+                          TranslatedText('Authorized Users Only',
                               style: GoogleFonts.dmSans(
                                   color: Colors.white,
                                   fontSize: 14,
@@ -2333,7 +2521,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                                   letterSpacing: 0.3,
                                   shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)])),
                           const SizedBox(height: 3),
-                          Text('Unauthorized access is strictly prohibited.',
+                          TranslatedText('Unauthorized access is strictly prohibited.',
                               style: GoogleFonts.dmSans(
                                   color: Colors.white.withOpacity(0.90),
                                   fontSize: 12,
@@ -2358,17 +2546,17 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
               child: Row(children: [
                 Icon(Icons.air_rounded, color: Colors.lightBlue[300], size: 15),
                 const SizedBox(width: 8),
-                Expanded(child: RichText(text: TextSpan(
-                    style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 11, height: 1.4),
-                    children: [
-                      const TextSpan(text: 'AQI data sourced from '),
-                      TextSpan(text: 'CPCB', style: GoogleFonts.dmSans(
-                          color: Colors.lightBlue[200], fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
-                          decorationColor: Colors.lightBlue)),
-                      const TextSpan(text: ' · cpcb.nic.in'),
-                    ]))),
+                Expanded(child: Row(children: [
+                  TranslatedText('AQI data sourced from ',
+                      style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 11, height: 1.4)),
+                  TranslatedText('CPCB', style: GoogleFonts.dmSans(
+                      color: Colors.lightBlue[200], fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Colors.lightBlue)),
+                  TranslatedText(' · cpcb.nic.in',
+                      style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 11, height: 1.4)),
+                ])),
                 const SizedBox(width: 4),
                 Icon(Icons.open_in_new_rounded, color: Colors.white30, size: 11),
               ]))));
@@ -2427,7 +2615,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                             Icon(isAct ? Icons.location_on_rounded : Icons.location_on_outlined,
                                 color: isAct ? Colors.white : Colors.white60, size: 18),
                             const SizedBox(width: 10),
-                            Expanded(child: Text(fav.name, style: GoogleFonts.dmSans(
+                            Expanded(child: TranslatedText(fav.name, style: GoogleFonts.dmSans(
                                 color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700))),
                             if (isAct)
                               Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -2508,7 +2696,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(icon, color: Colors.white, size: 17),
                     const SizedBox(width: 8),
-                    Text(label, style: GoogleFonts.dmSans(color: Colors.white,
+                    TranslatedText(label, style: GoogleFonts.dmSans(color: Colors.white,
                         fontWeight: FontWeight.w700, fontSize: 14)),
                   ])))));
 

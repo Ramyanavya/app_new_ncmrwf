@@ -5,6 +5,9 @@
 // ✅ KEY FIX: temperature and feels_like now use wp.liveTemperatureC and
 // wp.liveFeelsLikeC (diurnal model) instead of cw.temperatureC (raw API).
 // This makes the home screen widget match the forecast screen exactly.
+//
+// ✅ THEME: 'hour' is now sent so the Kotlin widget can pick the correct
+// condition + time-of-day gradient drawable without any extra logic.
 
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -62,7 +65,11 @@ class WeatherWidgetUpdater {
         'uv_index':    cw.uvIndex.toStringAsFixed(1),
         'data_time':   cw.dataTime ?? '',
 
-        // ── 4-day forecast ────────────────────────────────────────────────
+        // ✅ THEME: current device hour so Kotlin picks the right time-of-day
+        // gradient (dawn/day/dusk/night) without needing any extra calculation.
+        'hour':        DateTime.now().hour.toString(),
+
+        // ── 4-day forecast ────────────────────────────────────────────────────
         // These correctly use tempMax/tempMin from the daily forecast (unchanged)
         'fc_day_0':  wp.forecast.length > 0 ? _dayShort(wp.forecast[0].day) : '---',
         'fc_temp_0': wp.forecast.length > 0 ? wp.forecast[0].tempMax.toStringAsFixed(0) : '--',
