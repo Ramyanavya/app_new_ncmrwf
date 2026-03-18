@@ -10,7 +10,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.new_ncmrwf_app"
+        applicationId = "com.example.wings"
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = 1

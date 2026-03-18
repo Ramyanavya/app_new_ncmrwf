@@ -1,5 +1,3 @@
-// lib/main.dart
-
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -24,6 +22,7 @@ import 'utils/translated_text.dart';
 import 'services/translator_service.dart';
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http; // ✅ NEW IMPORT
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,7 +40,6 @@ void main() async {
   await favProvider.loadFavorites();
   await weatherProvider.initFromCache();
 
-  // ✅ AUTH: Check login state before runApp — fast disk reads < 10ms
   final bool sessionExpired = await AuthService.wasSessionExpired();
   final bool loggedIn       = await AuthService.isLoggedIn();
 
@@ -63,8 +61,6 @@ void main() async {
 
   weatherProvider.initAndRefresh();
 
-  // ✅ FIX: Delay heavy services by 3 seconds so OneSignal has time
-  // to fully register the device before we add listeners
   WidgetsBinding.instance.addPostFrameCallback((_) {
     Future.delayed(const Duration(seconds: 3), _initHeavyServices);
   });
@@ -81,21 +77,16 @@ Future<void> _initHeavyServices() async {
     }
     await OneSignal.Notifications.requestPermission(true);
 
-    // ── Log subscription state ─────────────────────────────────────────────
-    final playerId    = OneSignal.User.pushSubscription.id;
-    final isOptedIn   = OneSignal.User.pushSubscription.optedIn;
+    final playerId  = OneSignal.User.pushSubscription.id;
+    final isOptedIn = OneSignal.User.pushSubscription.optedIn;
     debugPrint('[OneSignal] Player ID: $playerId');
     debugPrint('[OneSignal] Opted in: $isOptedIn');
-
-    // ── Watch for subscription changes ─────────────────────────────────────
     OneSignal.User.pushSubscription.addObserver((state) {
       debugPrint('[OneSignal] Subscription updated:');
       debugPrint('  id: ${state.current.id}');
       debugPrint('  optedIn: ${state.current.optedIn}');
     });
 
-    // ── Notification arrives while app is OPEN ─────────────────────────────
-    // OneSignal suppresses heads-up in foreground — show it via local plugin
     OneSignal.Notifications.addForegroundWillDisplayListener((event) {
       final n = event.notification;
       debugPrint('[OneSignal] Foreground notification: ${n.title}');
@@ -103,15 +94,23 @@ Future<void> _initHeavyServices() async {
         n.title ?? 'Weather Alert',
         n.body  ?? '',
       );
-      event.preventDefault(); // stop OneSignal's own display
+      event.preventDefault();
     });
 
-    // ── User TAPS a notification ───────────────────────────────────────────
     OneSignal.Notifications.addClickListener((event) {
       debugPrint('[OneSignal] Notification tapped: '
           '${event.notification.additionalData}');
-      // Add navigation here later if needed:
       // navigatorKey.currentState?.pushNamed('/forecast');
+    });
+
+
+    // ✅ NEW: Keep Render.com backend alive every 10 minutes
+    // Render free tier sleeps after 15 min inactivity — this prevents that
+    // so the cron job keeps running and closed-app notifications keep working
+    Timer.periodic(const Duration(minutes: 10), (_) {
+      http
+          .get(Uri.parse('https://ncmrwf-alerts.onrender.com/health'))
+          .catchError((_) {}); // silent — non-fatal if backend unreachable
     });
 
     debugPrint('[OneSignal] ✅ Heavy services initialized');
@@ -483,9 +482,9 @@ class _MainShellState extends State<MainShell>
 
     final tt        = TimeTheme.of();
     final condTheme = WeatherConditionTheme.of(condition);
-    final isNight = tt.periodLabel == 'Night';
+    final isNight   = tt.periodLabel == 'Night';
     final Color navColor = isNight
-        ? tt.sheetGrad2.withOpacity(0.97)          // #040A18 deep navy
+        ? tt.sheetGrad2.withOpacity(0.97)
         : condTheme.skyGradient.last.withOpacity(0.88);
     final activeAccent = tt.accent;
 

@@ -1531,50 +1531,72 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       bgOpacity: 0.18,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Container(
+          // AQI circle — fixed size, never stretches
+          SizedBox(
             width: 62, height: 62,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: aqiColor, width: 2.5),
-              color: aqiColor.withOpacity(0.18),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: aqiColor, width: 2.5),
+                color: aqiColor.withOpacity(0.18),
+              ),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.eco_rounded, color: aqiColor, size: 18),
+                const SizedBox(height: 1),
+                Text('$aqi', style: GoogleFonts.dmSans(
+                    color: aqiColor, fontSize: 16, fontWeight: FontWeight.w900, height: 1.1)),
+              ]),
             ),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.eco_rounded, color: aqiColor, size: 18),
-              const SizedBox(height: 1),
-              Text('$aqi', style: GoogleFonts.dmSans(
-                  color: aqiColor, fontSize: 16, fontWeight: FontWeight.w900, height: 1.1)),
-            ]),
           ),
           const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              TranslatedText('Air Quality', style: GoogleFonts.dmSans(
-                  color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: BoxDecoration(
-                  color: aqiColor,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: TranslatedText(aqiLabel, style: GoogleFonts.dmSans(
-                    color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+          // Right side — must be Expanded so it never pushes outside the card
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              // ── Title + badge: use Wrap so badge wraps to next line if needed ──
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  TranslatedText('Air Quality', style: GoogleFonts.dmSans(
+                      color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                  Container(
+                    constraints: const BoxConstraints(maxWidth: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: aqiColor,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: TranslatedText(
+                        aqiLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.dmSans(
+                            color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 5),
+              TranslatedText(aqiDesc, style: GoogleFonts.dmSans(
+                  color: Colors.white70, fontSize: 12, height: 1.4),
+                  maxLines: 3, overflow: TextOverflow.ellipsis),
+              if (pollutant.isNotEmpty && pollutant != 'NA') ...[
+                const SizedBox(height: 4),
+                TranslatedText('Main pollutant: $pollutant',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(
+                        color: aqiColor.withOpacity(0.85), fontSize: 11,
+                        fontWeight: FontWeight.w600)),
+              ],
             ]),
-            const SizedBox(height: 5),
-            TranslatedText(aqiDesc, style: GoogleFonts.dmSans(
-                color: Colors.white70, fontSize: 12, height: 1.4),
-                maxLines: 2, overflow: TextOverflow.ellipsis),
-            if (pollutant.isNotEmpty && pollutant != 'NA') ...[
-              const SizedBox(height: 4),
-              TranslatedText('Main pollutant: $pollutant',
-                  style: GoogleFonts.dmSans(
-                      color: aqiColor.withOpacity(0.85), fontSize: 11,
-                      fontWeight: FontWeight.w600)),
-            ],
-          ])),
+          ),
         ]),
         const SizedBox(height: 12),
+        // Band bar
         LayoutBuilder(builder: (_, c) {
           const gap = 3.0;
           final segW = (c.maxWidth - gap * 4) / 5;
@@ -1603,6 +1625,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
             Expanded(child: TranslatedText(station, style: GoogleFonts.dmSans(
                 color: Colors.white38, fontSize: 10, height: 1.3),
                 maxLines: 1, overflow: TextOverflow.ellipsis)),
+            const SizedBox(width: 4),
             TranslatedText('CPCB', style: GoogleFonts.dmSans(
                 color: Colors.white30, fontSize: 9, fontWeight: FontWeight.w700,
                 letterSpacing: 0.5)),
@@ -2766,3 +2789,4 @@ class _WeatherBackgroundState extends State<_WeatherBackground> {
             })),
   ]);
 }
+

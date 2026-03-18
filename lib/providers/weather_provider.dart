@@ -5,6 +5,8 @@
 // ✅ FIX: Now calls WeatherAlertService.checkAndSendLive() with
 //    liveTemperatureC / liveWindSpeedKmh / liveRainMm so the temperature
 //    shown in the notification matches the app display exactly.
+// ✅ NEW: Calls NotificationRegistrationService.register() after every
+//    successful GPS fetch so the backend can send closed-app notifications.
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -15,6 +17,7 @@ import '../services/local_notification_service.dart';
 import '../services/weather_alert_service.dart';
 import '../services/weather_service.dart';
 import '../services/location_service.dart';
+import '../services/notification_registration_service.dart'; // ✅ NEW IMPORT
 import '../widgets/weather_widget.dart';
 import 'dart:convert' show jsonDecode;
 
@@ -267,13 +270,12 @@ class WeatherProvider extends ChangeNotifier {
   }
 
   // ── Helper: send alert using live computed values ─────────────────────────
-  // Called after every successful fetch so notification temp matches app display
   Future<void> _sendAlert() async {
     if (_currentWeather == null) return;
     try {
       await WeatherAlertService.checkAndSendLive(
         weather:  _currentWeather!,
-        liveTemp: liveTemperatureC,  // ← diurnal model value (matches app)
+        liveTemp: liveTemperatureC,
         liveWind: liveWindSpeedKmh,
         liveRain: liveRainMm,
       );
@@ -349,8 +351,14 @@ class WeatherProvider extends ChangeNotifier {
         debugPrint('[WeatherProvider] Widget update (non-fatal): $e');
       }
 
-      // ✅ Uses liveTemperatureC so notification matches app display
       await _sendAlert();
+
+      // ✅ NEW: Register this device's GPS location with the backend
+      // so background cron job can send notifications when app is closed
+      await NotificationRegistrationService.register(
+        lat: _latitude,
+        lon: _longitude,
+      );
 
     } catch (e) {
       _silentRefreshing = false;
@@ -407,6 +415,14 @@ class WeatherProvider extends ChangeNotifier {
         _placeName = 'New Delhi, Delhi';
       }
       await _fetchAll();
+
+      // ✅ NEW: Register this device's GPS location with the backend
+      // so background cron job can send notifications when app is closed
+      await NotificationRegistrationService.register(
+        lat: _latitude,
+        lon: _longitude,
+      );
+
     } catch (e) {
       debugPrint('[WeatherProvider] $e');
       _setError(e.toString());
@@ -501,7 +517,6 @@ class WeatherProvider extends ChangeNotifier {
         debugPrint('[WeatherProvider] Widget update (non-fatal): $e');
       }
 
-      // ✅ Uses liveTemperatureC so notification matches app display
       await _sendAlert();
 
       if (_usingStaleData) _scheduleBackgroundRefresh();
@@ -547,7 +562,6 @@ class WeatherProvider extends ChangeNotifier {
         } catch (e) {
           debugPrint('[WeatherProvider] Widget update (non-fatal): $e');
         }
-        // ✅ Uses liveTemperatureC so notification matches app display
         await _sendAlert();
       } catch (e) {
         debugPrint('[WeatherProvider] Background refresh failed: $e');
