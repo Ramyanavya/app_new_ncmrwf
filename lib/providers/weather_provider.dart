@@ -1,23 +1,12 @@
-// lib/providers/weather_provider.dart
-//
-// ✅ FIX: initAndRefresh() no longer calls initFromCache() internally.
-// ✅ FIX: Removed locationKey gate — alert fires on every fetch.
-// ✅ FIX: Now calls WeatherAlertService.checkAndSendLive() with
-//    liveTemperatureC / liveWindSpeedKmh / liveRainMm so the temperature
-//    shown in the notification matches the app display exactly.
-// ✅ NEW: Calls NotificationRegistrationService.register() after every
-//    successful GPS fetch so the backend can send closed-app notifications.
-
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../models/weather_model.dart';
-import '../services/local_notification_service.dart';
 import '../services/weather_alert_service.dart';
 import '../services/weather_service.dart';
 import '../services/location_service.dart';
-import '../services/notification_registration_service.dart'; // ✅ NEW IMPORT
+import '../services/notification_registration_service.dart';
 import '../widgets/weather_widget.dart';
 import 'dart:convert' show jsonDecode;
 
@@ -98,7 +87,6 @@ class WeatherProvider extends ChangeNotifier {
 
   DateTime? _lastFetchTime;
 
-  // ── Getters ────────────────────────────────────────────────────────────────
   WeatherStatus       get status             => _status;
   CurrentWeather?     get currentWeather     => _currentWeather;
   List<DayForecast>   get forecast           => _forecast;
@@ -115,7 +103,6 @@ class WeatherProvider extends ChangeNotifier {
   LocationFailReason  get locationFailReason => _locationFailReason;
   bool                get silentRefreshing   => _silentRefreshing;
 
-  // ── Hourly helpers ─────────────────────────────────────────────────────────
   HourlyWeather? _nearestHourly(DateTime target) {
     if (_hourly.isEmpty) return null;
     HourlyWeather? best;
@@ -138,7 +125,6 @@ class WeatherProvider extends ChangeNotifier {
     }).toList();
   }
 
-  // ── DIURNAL MODEL ──────────────────────────────────────────────────────────
   double _diurnalTempForHour(int hour) {
     final todayStr = _localDateStr(DateTime.now());
     DayForecast? todayFc;
@@ -162,10 +148,8 @@ class WeatherProvider extends ChangeNotifier {
     return tMin;
   }
 
-  // ── Live slot getter ───────────────────────────────────────────────────────
   HourlyWeather? get _liveSlot => _nearestHourly(DateTime.now());
 
-  // ── TEMPERATURE ────────────────────────────────────────────────────────────
   double get liveTemperatureC {
     if (_forecast.isEmpty) {
       return _liveSlot?.temperatureC ?? _currentWeather?.temperatureC ?? 0.0;
@@ -180,7 +164,6 @@ class WeatherProvider extends ChangeNotifier {
     return _diurnalTempForHour(DateTime.now().hour) - 1;
   }
 
-  // ── WIND ───────────────────────────────────────────────────────────────────
   double get liveWindSpeedKmh {
     final val = _liveSlot?.windSpeedKmh ?? _currentWeather?.windSpeedKmh ?? 0.0;
     debugPrint('[WeatherProvider] liveWind=$val km/h '
@@ -189,7 +172,6 @@ class WeatherProvider extends ChangeNotifier {
     return val;
   }
 
-  // ── HUMIDITY ───────────────────────────────────────────────────────────────
   double get liveHumidityPercent {
     final val = _liveSlot?.humidityPercent ?? _currentWeather?.humidityPercent ?? 0.0;
     debugPrint('[WeatherProvider] liveHumidity=$val% '
@@ -218,7 +200,6 @@ class WeatherProvider extends ChangeNotifier {
     return 0.0;
   }
 
-  // ── Cache-first init ───────────────────────────────────────────────────────
   Future<void> initFromCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -258,7 +239,6 @@ class WeatherProvider extends ChangeNotifier {
     }
   }
 
-  // ── initAndRefresh ─────────────────────────────────────────────────────────
   Future<void> initAndRefresh() async {
     if (_status == WeatherStatus.loaded) {
       debugPrint('[WeatherProvider] Cache hit — silently refreshing');
@@ -269,7 +249,6 @@ class WeatherProvider extends ChangeNotifier {
     }
   }
 
-  // ── Helper: send alert using live computed values ─────────────────────────
   Future<void> _sendAlert() async {
     if (_currentWeather == null) return;
     try {
@@ -284,7 +263,6 @@ class WeatherProvider extends ChangeNotifier {
     }
   }
 
-  // ── Silent background refresh ──────────────────────────────────────────────
   Future<void> _silentRefresh() async {
     if (_silentRefreshing) return;
     _silentRefreshing = true;
@@ -353,8 +331,6 @@ class WeatherProvider extends ChangeNotifier {
 
       await _sendAlert();
 
-      // ✅ NEW: Register this device's GPS location with the backend
-      // so background cron job can send notifications when app is closed
       await NotificationRegistrationService.register(
         lat: _latitude,
         lon: _longitude,
@@ -382,7 +358,6 @@ class WeatherProvider extends ChangeNotifier {
     }
   }
 
-  // ── Public API ─────────────────────────────────────────────────────────────
   Future<void> fetchWeatherForCurrentLocation() async {
     if (_isDebouncedNow()) return;
 
@@ -416,8 +391,6 @@ class WeatherProvider extends ChangeNotifier {
       }
       await _fetchAll();
 
-      // ✅ NEW: Register this device's GPS location with the backend
-      // so background cron job can send notifications when app is closed
       await NotificationRegistrationService.register(
         lat: _latitude,
         lon: _longitude,

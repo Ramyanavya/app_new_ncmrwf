@@ -1,20 +1,8 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// pubspec.yaml — add:
-//   webview_flutter: ^4.7.0
-//
-// android/app/src/main/AndroidManifest.xml — inside <application> tag add:
-//   <uses-permission android:name="android.permission.INTERNET"/>
-// ─────────────────────────────────────────────────────────────────────────────
-
 import 'dart:ui';
 import '../utils/translated_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// THEME
-// ─────────────────────────────────────────────────────────────────────────────
 class _T {
   static const bg1         = Color(0xFF060D1A);
   static const bg2         = Color(0xFF0D1B2A);
@@ -29,10 +17,6 @@ class _T {
   static const white12     = Color(0x1FFFFFFF);
   static const white08     = Color(0x14FFFFFF);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCT MODEL  (self-contained — no dependency on ProductModel)
-// ─────────────────────────────────────────────────────────────────────────────
 class _Prod {
   final int          id;
   final String       name;
@@ -68,10 +52,6 @@ class _Prod {
   bool get hasCity  => cities.isNotEmpty;
   bool get isStatic => type == 'static';
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// URL BUILDER
-// ─────────────────────────────────────────────────────────────────────────────
 String _buildUrl(
     _Prod p, String date, String? utc, int? hpa, int? fcst, String? city) {
   if (p.isStatic) return p.baseUrl;
@@ -85,9 +65,6 @@ String _buildUrl(
   return url;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CHART VIEWER SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
 class ChartViewerScreen extends StatefulWidget {
   final _Prod prod;
   const ChartViewerScreen({super.key, required this.prod});
@@ -99,7 +76,6 @@ class ChartViewerScreen extends StatefulWidget {
 class _ChartViewerState extends State<ChartViewerScreen>
     with SingleTickerProviderStateMixin {
 
-  // ── param state ────────────────────────────────────────────────────────────
   late String  _date;
   String?      _utc;
   int?         _hpa;

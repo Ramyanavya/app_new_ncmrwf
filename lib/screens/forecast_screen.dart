@@ -663,12 +663,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   bool _aiLoading = false;
   String? _lastAiKey;
 
-  // ── Condition insight state (AI-generated) ─────────────────────────────────
-  String? _conditionTitle;
-  String? _conditionBody;
-  String? _conditionExtra;
-  bool    _conditionLoading = false;
-  String? _lastConditionKey;
+
 
   // ── AQI state ──────────────────────────────────────────────────────────────
   _AqiData? _aqiData;
@@ -706,7 +701,6 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
         _playEntry();
         _fetchPincodeFromProvider(wp);
         _fetchAqi(wp.latitude, wp.longitude);
-        _triggerConditionInsight(wp);
       } else if (wp.status == WeatherStatus.initial) {
         wp.fetchWeatherForCurrentLocation();
       }
@@ -716,17 +710,13 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   }
 
   void _scheduleMidnightCheck() {
-    Future.delayed(const Duration(minutes: 1), () {
+    Future.delayed(const Duration(minutes: 60), () {
       if (!mounted) return;
       final now = DateTime.now();
-      if (_lastKnownDate != null && _ds(now) != _ds(_lastKnownDate!)) {
-        _lastKnownDate = now;
-        final wp = context.read<WeatherProvider>();
-        _alignToToday(wp);
-        wp.refresh();
-      } else {
-        _lastKnownDate = now;
-      }
+      _lastKnownDate = now;
+      final wp = context.read<WeatherProvider>();
+      _alignToToday(wp);
+      wp.refresh();   // ← always refresh every hour
       _scheduleMidnightCheck();
     });
   }
@@ -739,7 +729,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       _playEntry();
       _fetchPincodeFromProvider(wp);
       _fetchAqi(wp.latitude, wp.longitude);
-      _triggerConditionInsight(wp);
+
     }
   }
 
@@ -846,121 +836,6 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     }
   }
 
-  // ── Trigger condition insight safely (outside build) ─────────────────────
-  void _triggerConditionInsight(WeatherProvider wp) {
-    if (!mounted || wp.currentWeather == null) return;
-    final day = _getActiveDay(wp);
-    _fetchConditionInsight(
-      condition:  day.condition,
-      tempC:      day.temperatureC,
-      feelsLikeC: day.feelsLikeC,
-      windKmh:    day.windSpeedKmh,
-      windDir:    day.windDirection,
-      humidity:   day.humidityPercent,
-      rainMm:     day.rainMm,
-      location:   wp.placeName.isEmpty ? 'your location' : wp.placeName,
-    );
-  }
-
-  // ── NEW: Condition insight from Claude (title + body + extra) ─────────────
-  Future<void> _fetchConditionInsight({
-    required String condition,
-    required double tempC,
-    required double feelsLikeC,
-    required double windKmh,
-    required String windDir,
-    required double humidity,
-    required double rainMm,
-    required String location,
-  }) async {
-    final cacheKey =
-        '$condition|${tempC.toStringAsFixed(0)}|${feelsLikeC.toStringAsFixed(0)}|'
-        '${windKmh.toStringAsFixed(0)}|$windDir|${humidity.toStringAsFixed(0)}|'
-        '${rainMm.toStringAsFixed(1)}';
-    if (_lastConditionKey == cacheKey &&
-        _conditionTitle != null &&
-        _conditionBody  != null) return;
-    _lastConditionKey = cacheKey;
-    if (!mounted) return;
-    setState(() {
-      _conditionLoading = true;
-      _conditionTitle   = null;
-      _conditionBody    = null;
-      _conditionExtra   = null;
-    });
-
-    const anthropicKey = 'YOUR_ANTHROPIC_API_KEY';
-
-    final prompt =
-        'You are a weather assistant embedded in a weather app. '
-        'Given these current conditions for $location:\n'
-        '  Condition: $condition\n'
-        '  Temperature: ${tempC.toStringAsFixed(1)}°C\n'
-        '  Feels like: ${feelsLikeC.toStringAsFixed(1)}°C\n'
-        '  Humidity: ${humidity.toStringAsFixed(0)}%\n'
-        '  Wind: $windDir at ${windKmh.toStringAsFixed(0)} km/h\n'
-        '  Rainfall: ${rainMm.toStringAsFixed(1)} mm\n\n'
-        'Respond ONLY with a valid JSON object (no markdown, no extra keys) like:\n'
-        '{\n'
-        '  "title": "<2-4 word condition label, e.g. Sunny and Warm>",\n'
-        '  "body": "<1 sentence safety or comfort tip for residents, max 20 words>",\n'
-        '  "extra": "<1 concise data point to highlight, max 10 words, or empty string>"\n'
-        '}\n'
-        'Keep the tone friendly and practical.';
-
-    try {
-      final res = await http.post(
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: json.encode({
-          'model': 'claude-haiku-4-5-20251001',
-          'max_tokens': 150,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 20));
-
-      if (res.statusCode == 200) {
-        final data        = json.decode(res.body) as Map<String, dynamic>;
-        final contentList = data['content'] as List? ?? [];
-        final rawText = contentList
-            .whereType<Map<String, dynamic>>()
-            .where((b) => b['type'] == 'text')
-            .map((b) => b['text'] as String? ?? '')
-            .join(' ')
-            .trim();
-
-        // Strip any accidental markdown fences
-        final cleaned = rawText
-            .replaceAll('```json', '')
-            .replaceAll('```', '')
-            .trim();
-
-        final parsed = json.decode(cleaned) as Map<String, dynamic>;
-        if (mounted) {
-          setState(() {
-            _conditionTitle   = (parsed['title']  as String? ?? '').trim();
-            _conditionBody    = (parsed['body']    as String? ?? '').trim();
-            _conditionExtra   = (parsed['extra']   as String? ?? '').trim();
-            _conditionLoading = false;
-          });
-        }
-      } else {
-        debugPrint('[ConditionInsight] ${res.statusCode}: ${res.body}');
-        if (mounted) setState(() => _conditionLoading = false);
-      }
-    } catch (e) {
-      debugPrint('[ConditionInsight] $e');
-      if (mounted) setState(() => _conditionLoading = false);
-    }
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
   void _alignToToday(WeatherProvider wp) {
     if (wp.forecast.isEmpty) return;
     final ts = _ds(DateTime.now());
@@ -1026,9 +901,6 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     if (!mounted) return;
     setState(() => _selDay = i);
     _daySwitchC?.forward();
-    // Fetch new insight for the newly selected day
-    final wp = context.read<WeatherProvider>();
-    _triggerConditionInsight(wp);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1389,6 +1261,43 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       _ConditionType ct, _TimeOfDay tod) =>
       Padding(padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Builder(builder: (_) {
+              final raw = wp.currentWeather?.dataTime ?? '';
+              if (raw.isEmpty) return const SizedBox.shrink();
+              var fixed = raw.trim().replaceFirst(' ', 'T');
+              if (!fixed.endsWith('Z') &&
+                  !fixed.contains('+') &&
+                  !RegExp(r'-\d{2}:\d{2}$').hasMatch(fixed)) {
+                fixed = '${fixed}Z';
+              }
+
+              final dt = DateTime.tryParse(fixed);
+              if (dt == null) return const SizedBox.shrink();
+
+              final ist  = dt.toUtc().add(const Duration(hours: 5, minutes: 30));
+              final h    = ist.hour;
+              final min  = ist.minute.toString().padLeft(2, '0');
+              final h12  = h == 0 ? 12 : h > 12 ? h - 12 : h;
+              final ampm = h >= 12 ? 'PM' : 'AM';
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Row(children: [
+                  Icon(Icons.update_rounded,
+                      color: Colors.white.withOpacity(0.50), size: 11),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Updated at: $h12:$min $ampm IST',
+                    style: GoogleFonts.dmSans(
+                      color: Colors.white.withOpacity(0.55),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ]),
+              );
+            }),
             Row(children: [
               const Icon(Icons.location_on_rounded, color: Colors.white, size: 15),
               const SizedBox(width: 5),
@@ -1782,7 +1691,6 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
       const SizedBox(height: 12),
       _buildTempGraph(wp, theme),
       const SizedBox(height: 12),
-      _buildConditionCard(day, theme, ct),
       if (day.rainMm > 0) ...[const SizedBox(height: 12), _buildRainCard(day)],
     ]);
   }
@@ -1832,25 +1740,11 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
   }
 
   // ════════════════════════════════════════════════════════════════
-  // PRECIPITATION TAB
+  // PRECIPITATION TAB  ← only change: removed hourly card
   // ════════════════════════════════════════════════════════════════
   Widget _buildPrecipTab(WeatherProvider wp, WeatherConditionTheme theme) {
-    final hrs    = _getSlotsForSelDay(wp);
     final tenDay = _visibleForecast(wp);
     return Column(children: [
-      _FrostCard(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        blurSigma: 20, bgOpacity: 0.20,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TranslatedText('Hourly Precipitation', style: GoogleFonts.dmSans(
-              color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 14),
-          hrs.isEmpty
-              ? TranslatedText('No data', style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 12))
-              : _precipHourlySlots(hrs),
-        ]),
-      ),
-      const SizedBox(height: 12),
       _FrostCard(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         blurSigma: 20, bgOpacity: 0.20,
@@ -2369,94 +2263,7 @@ class _ForecastScreenState extends State<ForecastScreen> with TickerProviderStat
     return r;
   }
 
-  // ── Condition card — AI-powered, no hardcoded text ────────────────────────
-  Widget _buildConditionCard(_ActiveDay day, WeatherConditionTheme theme, _ConditionType ct) {
-    // Map condition type → icon + accent colour (visual logic unchanged)
-    final IconData icon;
-    final Color    accentC;
-    final Color?   tint;
-    String?        badge;
 
-    switch (ct) {
-      case _ConditionType.sunny:
-        icon = Icons.wb_sunny_rounded; accentC = const Color(0xFFFFD54F); tint = null; badge = null;
-        break;
-      case _ConditionType.rainy:
-        icon = Icons.water_drop_rounded; accentC = const Color(0xFF64B5F6); tint = null; badge = null;
-        break;
-      case _ConditionType.stormy:
-        icon = Icons.thunderstorm_rounded; accentC = const Color(0xFFFFEE58);
-        tint = const Color(0xFF311B92); badge = '⚡ High risk';
-        break;
-      case _ConditionType.snowy:
-        icon = Icons.ac_unit_rounded; accentC = const Color(0xFFB3E5FC); tint = null; badge = null;
-        break;
-      case _ConditionType.cloudy:
-        icon = Icons.cloud_rounded; accentC = const Color(0xFFB0BEC5); tint = null; badge = null;
-        break;
-      case _ConditionType.windy:
-        icon = Icons.air_rounded; accentC = const Color(0xFF80DEEA); tint = null; badge = null;
-        break;
-      default:
-        icon = Icons.wb_cloudy_rounded; accentC = Colors.white60; tint = null; badge = null;
-    }
-
-    // Loading state
-    if (_conditionLoading && _conditionTitle == null) {
-      return _FrostCard(
-        padding: const EdgeInsets.all(16),
-        blurSigma: 18,
-        bgOpacity: tint != null ? 0.22 : 0.15,
-        tint: tint,
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(shape: BoxShape.circle, color: accentC.withOpacity(0.20)),
-            child: Icon(icon, color: accentC, size: 24),
-          ),
-          const SizedBox(width: 12),
-          const SizedBox(width: 16, height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white38)),
-          const SizedBox(width: 10),
-          TranslatedText('Loading insight…',
-              style: GoogleFonts.dmSans(color: Colors.white54, fontSize: 12)),
-        ]),
-      );
-    }
-
-    // AI text — fall back to condition string if API failed
-    final title = (_conditionTitle?.isNotEmpty ?? false) ? _conditionTitle! : day.condition;
-    final body  = (_conditionBody?.isNotEmpty  ?? false) ? _conditionBody!  : 'Forecast data from NCMRWF NWP Model.';
-    final extra = (_conditionExtra?.isNotEmpty ?? false) ? _conditionExtra  : null;
-
-    return _frostInfo(icon, accentC, title, body, extra: extra, badge: badge, tint: tint);
-  }
-
-  Widget _frostInfo(IconData icon, Color c, String title, String body,
-      {String? extra, String? badge, Color? tint}) =>
-      _FrostCard(padding: const EdgeInsets.all(16), blurSigma: 18,
-          bgOpacity: tint != null ? 0.22 : 0.15, tint: tint,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(shape: BoxShape.circle, color: c.withOpacity(0.20)),
-                child: Icon(icon, color: c, size: 24)),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              TranslatedText(title, style: GoogleFonts.dmSans(color: c,
-                  fontSize: 13, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              TranslatedText(body, style: GoogleFonts.dmSans(color: Colors.white70, fontSize: 12)),
-              if (extra != null) ...[const SizedBox(height: 6),
-                TranslatedText(extra, style: GoogleFonts.dmSans(color: c.withOpacity(0.85),
-                    fontSize: 11, fontWeight: FontWeight.w600))],
-              if (badge != null) ...[const SizedBox(height: 6),
-                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
-                        color: Colors.red.withOpacity(0.25)),
-                    child: TranslatedText(badge, style: GoogleFonts.dmSans(
-                        color: Colors.red[200], fontSize: 10, fontWeight: FontWeight.w700)))],
-            ])),
-          ]));
 
   Widget _buildRainCard(_ActiveDay day) => _FrostCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -2789,4 +2596,3 @@ class _WeatherBackgroundState extends State<_WeatherBackground> {
             })),
   ]);
 }
-

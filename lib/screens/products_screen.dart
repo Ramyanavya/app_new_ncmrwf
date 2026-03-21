@@ -1974,10 +1974,12 @@ class _ProductCard extends StatelessWidget {
               const SizedBox(height: 14),
               GestureDetector(
                 onTap: () => onViewChart(p),
-                child: _FrostCard(
+                child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 13),
-                  radius: 30, blurSigma: 12, bgOpacity: 0.22,
-                  tint: tt.accent,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF6D00),
+                    borderRadius: BorderRadius.circular(30),
+                  ),
                   child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 18),
                     const SizedBox(width: 8),

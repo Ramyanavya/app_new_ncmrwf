@@ -1,9 +1,3 @@
-// lib/models/weather_model.dart
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
 String _degToDir(double deg) {
   const dirs = [
     'N','NNE','NE','ENE','E','ESE','SE','SSE',
@@ -13,13 +7,6 @@ String _degToDir(double deg) {
   return dirs[idx];
 }
 
-// ── ROOT FIX ──────────────────────────────────────────────────────────────────
-// NCMRWF API returns hourly time as NAIVE UTC: "2026-03-06 03:00:00"
-// No 'Z', no '+05:30'. DateTime.tryParse() treats naive strings as LOCAL (IST).
-// So "03:00:00" → 3 AM IST in Dart memory. But it is 3 AM UTC = 8:30 AM IST.
-// Fix: replace space with T AND append Z → "2026-03-06T03:00:00Z"
-// Dart now parses as UTC. .toLocal() → 8:30 AM IST. Label shows "8AM". ✅
-// ─────────────────────────────────────────────────────────────────────────────
 String _toUtcIso(String raw) {
   if (raw.isEmpty) return raw;
   var s = raw.trim().replaceFirst(' ', 'T');
@@ -31,8 +18,6 @@ String _toUtcIso(String raw) {
   return s;
 }
 
-/// Returns display label like "8AM", "3PM" from a UTC ISO string.
-/// The input MUST already be UTC ISO (with Z) — use _toUtcIso() first.
 String _formatHourLabel(String utcIso) {
   try {
     final dt = DateTime.tryParse(utcIso)?.toLocal();
@@ -52,19 +37,11 @@ int _parsePressureHpa(dynamic raw) {
   return val.round();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WIND & HUMIDITY HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Safely reads wind speed from API JSON.
-/// NCMRWF may use 'wind_speed', 'windspeed', or 'wind_spd'.
 double _parseWindSpeed(Map<String, dynamic> json) {
   final raw = json['wind_speed'] ?? json['windspeed'] ?? json['wind_spd'];
   return (raw as num?)?.toDouble() ?? 0.0;
 }
 
-/// Safely reads wind direction degrees from API JSON.
-/// May come as num (degrees) or String — handles both.
 double _parseWindDeg(Map<String, dynamic> json) {
   final raw = json['wind_direction'];
   if (raw is num)    return raw.toDouble();
@@ -72,16 +49,11 @@ double _parseWindDeg(Map<String, dynamic> json) {
   return 0.0;
 }
 
-/// Safely reads humidity from API JSON.
-/// NCMRWF may use 'humidity' or 'relative_humidity'.
 double _parseHumidity(Map<String, dynamic> json) {
   final raw = json['humidity'] ?? json['relative_humidity'];
   return (raw as num?)?.toDouble() ?? 0.0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CURRENT WEATHER
-// ─────────────────────────────────────────────────────────────────────────────
 class CurrentWeather {
   final double latitude;
   final double longitude;
@@ -146,11 +118,8 @@ class CurrentWeather {
     final loc = json['location'] as Map<String, dynamic>? ?? {};
     final cur = json['current']  as Map<String, dynamic>? ?? {};
 
-    // ✅ WIND: use shared helper — handles 'wind_speed'/'windspeed'/'wind_spd'
     final windSpeed = _parseWindSpeed(cur);
-    // ✅ WIND DIR: use shared helper — handles num or String degrees
     final windDeg   = _parseWindDeg(cur);
-    // ✅ HUMIDITY: use shared helper — handles 'humidity'/'relative_humidity'
     final humidity  = _parseHumidity(cur);
 
     final rainRaw = (cur['rain'] as num?)?.toDouble() ?? 0.0;
@@ -176,9 +145,6 @@ class CurrentWeather {
       CurrentWeather.fromNcmrwfJson(json);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DAY FORECAST
-// ─────────────────────────────────────────────────────────────────────────────
 class DayForecast {
   final String date;
   final String day;
@@ -187,7 +153,6 @@ class DayForecast {
   final double tempMax;
   final String condition;
   final double rainTotal;
-  // ✅ ADDED: windDirection per day so Wind tab no longer hardcodes 'SSE'
   final String windDirection;
 
   DayForecast({
@@ -198,7 +163,7 @@ class DayForecast {
     required this.tempMax,
     required this.condition,
     this.rainTotal     = 0.0,
-    this.windDirection = 'N', // ✅ default 'N' if API doesn't provide it
+    this.windDirection = 'N',
   });
 
   factory DayForecast.fromNcmrwfJson(Map<String, dynamic> json) {
@@ -208,7 +173,6 @@ class DayForecast {
     final tMin    = (json['temp_min']  as num?)?.toDouble() ?? 0.0;
     final tMax    = (json['temp_max']  as num?)?.toDouble() ?? 0.0;
 
-    // ✅ WIND DIR: parse from daily API response using shared helper
     final windDeg = _parseWindDeg(json);
 
     return DayForecast(
@@ -227,12 +191,9 @@ class DayForecast {
       DayForecast.fromNcmrwfJson(json);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HOURLY WEATHER
-// ─────────────────────────────────────────────────────────────────────────────
 class HourlyWeather {
   final String label;
-  final String datetime; // always stored as UTC ISO with Z: "2026-03-06T03:00:00Z"
+  final String datetime;
   final double temperatureC;
   final double feelsLikeC;
   final double windSpeedKmh;
@@ -256,19 +217,12 @@ class HourlyWeather {
   });
 
   factory HourlyWeather.fromNcmrwfJson(Map<String, dynamic> json) {
-    // ✅ TIME: API may use 'time' OR 'datetime' — check both
     final timeStr = ((json['time'] ?? json['datetime'] ?? '') as Object).toString();
-
-    // ✅ WIND SPEED: use shared helper — handles all key variants
     final windSpeed = _parseWindSpeed(json);
-    // ✅ WIND DIR: use shared helper — handles num or String degrees
     final windDeg   = _parseWindDeg(json);
-    // ✅ HUMIDITY: use shared helper — handles all key variants
     final humidity  = _parseHumidity(json);
 
     final rainRaw = (json['rain'] as num?)?.toDouble() ?? 0.0;
-
-    // ✅ Convert "2026-03-06 03:00:00" → "2026-03-06T03:00:00Z" (UTC)
     final utcIso = _toUtcIso(timeStr);
 
     return HourlyWeather(
@@ -289,9 +243,6 @@ class HourlyWeather {
       HourlyWeather.fromNcmrwfJson(json);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TREND POINT
-// ─────────────────────────────────────────────────────────────────────────────
 class TrendPoint {
   final String day;
   final String date;
@@ -310,9 +261,6 @@ class TrendPoint {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FAVOURITE LOCATION
-// ─────────────────────────────────────────────────────────────────────────────
 class FavoriteLocation {
   final String name;
   final double latitude;
@@ -335,9 +283,6 @@ class FavoriteLocation {
       );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCT MODEL
-// ─────────────────────────────────────────────────────────────────────────────
 class ProductModel {
   final int    id;
   final String productName;

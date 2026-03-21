@@ -15,14 +15,14 @@ _Period _period([int? hour]) {
 }
 
 class TimeTheme {
-  final List<Color> bgGradient;   // 3-stop background gradient
-  final Color       accent;       // amber / golden highlight
-  final Color       cardBg;       // frosted card fill (with opacity)
-  final Color       statusBar;    // system-ui status bar tint
-  final Color       appBarBg;     // app-bar blur base
-  final Color       sheetGrad1;   // bottom-sheet top colour
-  final Color       sheetGrad2;   // bottom-sheet bottom colour
-  final Color       divider;      // divider / border hint
+  final List<Color> bgGradient;
+  final Color       accent;
+  final Color       cardBg;
+  final Color       statusBar;
+  final Color       appBarBg;
+  final Color       sheetGrad1;
+  final Color       sheetGrad2;
+  final Color       divider;
 
   const TimeTheme._({
     required this.bgGradient,
@@ -41,7 +41,7 @@ class TimeTheme {
     accent     : Color(0xFFFFC107),
     cardBg     : Color(0x38FFFFFF),
     statusBar  : Colors.transparent,
-    appBarBg   : Color(0xB342B8F0),
+    appBarBg   : Color(0xB37ACCF2),
     sheetGrad1 : Color(0xFF2AAFF2),
     sheetGrad2 : Color(0xFF1278C8),
     divider    : Color(0x33FFFFFF),

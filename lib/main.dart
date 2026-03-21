@@ -49,7 +49,7 @@ void main() async {
         ChangeNotifierProvider.value(value: weatherProvider),
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: favProvider),
-        ChangeNotifierProvider(create: (_) => ProductProvider()),
+        // ChangeNotifierProvider(create: (_) => ProductProvider()),
         ChangeNotifierProvider.value(value: TranslatorService.notifier),
       ],
       child: NCMRWFApp(

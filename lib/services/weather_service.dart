@@ -38,7 +38,21 @@ class WeatherService {
       final base    = DateTime.utc(utcNow.year, utcNow.month, utcNow.day)
           .subtract(Duration(days: daysBack));
       final dateStr = _fmtDate(base);
-      final timeStr = '${dateStr}T00:00:00';
+
+      // ✅ FIX: Snap to nearest past NWP run: 00, 06, 12, 18 UTC
+      // NCMRWF only publishes at these 4 fixed UTC times.
+      // Passing any other hour returns the same previous run anyway,
+      // so we snap explicitly so cur['time'] reflects the correct run.
+      int snappedHour = 0;
+      if (daysBack == 0) {
+        final h = utcNow.hour;
+        if (h >= 18)      snappedHour = 18;
+        else if (h >= 12) snappedHour = 12;
+        else if (h >= 6)  snappedHour = 6;
+        else              snappedHour = 0;
+      }
+      final currentHour = snappedHour.toString().padLeft(2, '0');
+      final timeStr = '${dateStr}T$currentHour:00:00';
 
       urls.add(
         'https://api.ncmrwf.gov.in/appapi/'
@@ -103,10 +117,24 @@ class WeatherService {
   Future<Map<String, dynamic>> _fetchRaw(double lat, double lon) async {
     final cacheKey = '${lat.toStringAsFixed(3)},${lon.toStringAsFixed(3)}';
 
-    // Memory cache — valid for 5 minutes only
+    // ✅ FIX: Bust cache when NWP run slot changes (00, 06, 12, 18 UTC)
+    // This ensures when NCMRWF publishes a new model run,
+    // the app fetches fresh data and cur['time'] updates correctly.
+    if (_memCache != null && _memCache!.key == cacheKey) {
+      final cachedHour = _memCache!.fetchedAt.toUtc().hour;
+      final nowHour    = DateTime.now().toUtc().hour;
+      int snap(int h) => h >= 18 ? 18 : h >= 12 ? 12 : h >= 6 ? 6 : 0;
+      if (snap(cachedHour) != snap(nowHour)) {
+        debugPrint('[WeatherService] NWP run slot changed '
+            '${snap(cachedHour)}→${snap(nowHour)} UTC — busting cache');
+        _memCache = null;
+      }
+    }
+
+    // Memory cache — valid for 60 minutes only
     if (_memCache != null &&
         _memCache!.key == cacheKey &&
-        DateTime.now().difference(_memCache!.fetchedAt).inMinutes < 5) {
+        DateTime.now().difference(_memCache!.fetchedAt).inMinutes < 60) {
       debugPrint('[WeatherService] ✅ Memory cache hit');
       return _memCache!.data;
     }
@@ -171,7 +199,6 @@ class WeatherService {
 
         bestFallback ??= data;
 
-        // ✅ FIX: also dump wind/humidity in validation so you can confirm keys
         final v = _validate(data);
         debugPrint('[WeatherService] $label → $v');
 
@@ -216,8 +243,6 @@ class WeatherService {
 
   // ─────────────────────────────────────────────────────────────────────────
   // VALIDATE
-  // ✅ FIX: also reads and logs wind_speed + humidity from first hourly slot
-  //         so you can confirm in logcat that the keys are correct.
   // ─────────────────────────────────────────────────────────────────────────
   _ValidationResult _validate(Map<String, dynamic> data) {
     final hourly = data['hourly'] as List?;
@@ -231,12 +256,11 @@ class WeatherService {
     debugPrint('[WeatherService] ── Hourly dump (${hourly.length} slots) ──'
         ' now=${now.hour}:${now.minute.toString().padLeft(2,'0')} IST');
 
-    // ✅ Log wind/humidity keys from first slot to confirm API structure
     if (hourly.isNotEmpty) {
       final first = hourly[0] as Map<String, dynamic>;
-      final windRaw  = first['wind_speed']        ?? first['windspeed']          ?? first['wind_spd']          ?? 'KEY_NOT_FOUND';
-      final humRaw   = first['humidity']           ?? first['relative_humidity']  ?? 'KEY_NOT_FOUND';
-      final wDirRaw  = first['wind_direction']     ?? 'KEY_NOT_FOUND';
+      final windRaw  = first['wind_speed']    ?? first['windspeed']         ?? first['wind_spd']         ?? 'KEY_NOT_FOUND';
+      final humRaw   = first['humidity']      ?? first['relative_humidity'] ?? 'KEY_NOT_FOUND';
+      final wDirRaw  = first['wind_direction'] ?? 'KEY_NOT_FOUND';
       debugPrint('[WeatherService] ── WIND/HUMIDITY KEY CHECK ──');
       debugPrint('[WeatherService]   wind_speed  → $windRaw');
       debugPrint('[WeatherService]   humidity    → $humRaw');
@@ -249,7 +273,6 @@ class WeatherService {
 
     for (final raw in hourly) {
       final m     = raw as Map<String, dynamic>;
-      // ✅ FIX: check both 'time' and 'datetime' keys (same fix as model)
       final dtRaw = (m['time'] ?? m['datetime'] ?? m['dt'] ?? '').toString();
       final dt    = DateTime.tryParse(dtRaw)?.toLocal()
           ?? DateTime.tryParse('${dtRaw}Z')?.toLocal();

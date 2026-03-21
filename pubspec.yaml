@@ -78,4 +78,3 @@ flutter:
     - assets/icon/
     - assets/backgrounds/
     - assets/data/india_states_compact.json
-    - assets/translations/   # ← ADDED (your app_icon.png lives here)

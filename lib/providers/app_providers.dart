@@ -1,9 +1,4 @@
-// lib/providers/app_providers.dart
-//
-// ✅ SettingsProvider.setLanguage() now calls TranslatorService.setLanguage()
-//    which internally fires TranslatorService.notifier.changed() — this causes
-//    ALL TranslatedText / WithTranslation / ScreenTranslator widgets across
-//    every screen to rebuild simultaneously.
+
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -11,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/weather_model.dart';
 import '../services/translator_service.dart';
 
-// ─── SETTINGS PROVIDER ────────────────────────────────────────────────────────
 class SettingsProvider extends ChangeNotifier {
   String _languageCode = 'en';
   String get languageCode => _languageCode;
@@ -34,13 +28,9 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
-  /// Change language: persists to SharedPrefs, updates TranslatorService
-  /// (which fires LanguageNotifier → all TranslatedText widgets rebuild),
-  /// and notifyListeners() for any Consumer<SettingsProvider> widgets.
   Future<void> setLanguage(String code) async {
     if (_languageCode == code) return;
     _languageCode = code;
-    // This clears cache AND fires TranslatorService.notifier.changed()
     await TranslatorService.setLanguage(code);
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -49,11 +39,9 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Alias used by Login screen dropdown
   Future<void> onLanguageChanged(String code) => setLanguage(code);
 }
 
-// ─── FAVORITES PROVIDER ───────────────────────────────────────────────────────
 class FavoritesProvider extends ChangeNotifier {
   static const String _storageKey  = 'favorites_list';
   static const int    maxFavorites = 5;
